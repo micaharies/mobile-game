@@ -273,9 +273,16 @@ const TIERS = [
 ];
 
 const CRYPTO_LAUNCH_ASSET = 'doge';
+// Third step is a market-wide crash (not just DOGO) so a brand-new player's
+// first tier unlock also teaches the broke/recovery loop early. Safe havens
+// are deliberately spared — their whole purpose is to be the thing that
+// doesn't crash, per DESIGN_NOTES. Whether this actually trips checkBroke()
+// depends on how much cash the player still has in reserve — real
+// consequence, not a forced modal.
 const CRYPTO_LAUNCH_SEQUENCE = [
   {mult:2.4, headline:'DOGO ignites on launch day, up huge out of the gate', dir:'up'},
   {mult:0.5, headline:'DOGO craters as early buyers cash out', dir:'down'},
+  {marketCrash:true, mult:0.03, headline:'Contagion spreads — the whole board is bleeding out', dir:'down'},
 ];
 
 const TICK_MS = 1250;
@@ -283,7 +290,8 @@ const TICK_MS = 1250;
 // crypto unlock around this mark, so the goal/loop is obvious fast. Recomputed
 // every tick from the current shortfall, so it self-corrects regardless of
 // which asset(s) they hold, when they buy, or how a bad random tick lands.
-const ONBOARDING_TARGET_MS = 5 * 60 * 1000;
+// Halved (was 5min) so the onboarding ramp into the first crash lesson moves twice as fast.
+const ONBOARDING_TARGET_MS = 2.5 * 60 * 1000;
 const ONBOARDING_MIN_TICKS = 10; // floor so a late buy never reads as one obvious jump
 const RETIRE_TIERS = [
   {label:'Comfortable', amt:10000},
@@ -413,12 +421,12 @@ function resetGame(){
 /* ---------- price simulation ---------- */
 function tickPrices(){
   let bigMove = null;
-  let scriptedAssetThisTick = null;
+  let scriptedAssetThisTick = null; // an asset id, or 'ALL' for a market-wide crash step
   if(state.cryptoLaunchQueue && state.cryptoLaunchQueue.length){
-    applyCryptoLaunchStep();
-    scriptedAssetThisTick = CRYPTO_LAUNCH_ASSET;
+    scriptedAssetThisTick = applyCryptoLaunchStep();
   }
   allAssets().forEach(a=>{
+    if(scriptedAssetThisTick === 'ALL' && a.type !== 'safe') return; // crash step owns this tick for every risky asset
     if(a.id === scriptedAssetThisTick) return; // scripted event owns this tick's move
     const shock = (Math.random() < a.vol * 0.15) ? (Math.random()<0.5?-1:1) * a.vol * 6 : 0;
     const change = a.drift + (Math.random()*2-1) * a.vol + shock;
@@ -457,10 +465,16 @@ function applyOnboardingBoost(){
 }
 
 function applyCryptoLaunchStep(){
-  if(!state.cryptoLaunchQueue || !state.cryptoLaunchQueue.length) return;
+  if(!state.cryptoLaunchQueue || !state.cryptoLaunchQueue.length) return null;
   const step = state.cryptoLaunchQueue.shift();
+  if(step.marketCrash){
+    ASSET_DEFS.forEach(a=>{ state.prices[a.id] = Math.max(0.01, state.prices[a.id] * step.mult); });
+    pushHeadline(step.headline, step.dir);
+    return 'ALL';
+  }
   state.prices[CRYPTO_LAUNCH_ASSET] = Math.max(0.01, state.prices[CRYPTO_LAUNCH_ASSET] * step.mult);
   pushHeadline(step.headline, step.dir);
+  return CRYPTO_LAUNCH_ASSET;
 }
 
 function triggerCryptoLaunch(){
