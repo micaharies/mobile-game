@@ -30,7 +30,7 @@ input{font-family:var(--font-mono);}
 
 /* ===== Ticker ===== */
 #ticker-wrap{background:#0a0a0c; border-bottom:1px solid var(--border); overflow:hidden; white-space:nowrap; height:30px; display:flex; align-items:center; position:relative;}
-#ticker{display:inline-block; font-family:var(--font-mono); font-size:12px; color:var(--text-dim); padding-left:100%; animation:scrollTicker 28s linear infinite;}
+#ticker{display:inline-block; font-family:var(--font-mono); font-size:12px; color:var(--text-dim); padding-left:100%; animation:scrollTicker 56s linear infinite;}
 #ticker span{margin-right:36px;}
 #ticker span.up{color:var(--up);}
 #ticker span.down{color:var(--down);}
@@ -239,10 +239,24 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
 const SAVE_KEY = 'degcap_save_v1';
 const TIERS = [
   {id:'stocks', label:'Stocks', unlockAt:0},
-  {id:'crypto', label:'Crypto', unlockAt:2000},
-  {id:'prediction', label:'Predictions', unlockAt:5000},
-  {id:'forex', label:'Forex', unlockAt:15000},
+  {id:'crypto', label:'Crypto', unlockAt:2000, line:'Local trader clears $2,000, granted crypto exchange access'},
+  {id:'prediction', label:'Predictions', unlockAt:5000, line:'Trader crosses $5,000, prediction markets now open'},
+  {id:'forex', label:'Forex', unlockAt:15000, line:'Trader crosses $15,000, granted access to forex desk'},
 ];
+
+const CRYPTO_LAUNCH_ASSET = 'doge';
+const CRYPTO_LAUNCH_SEQUENCE = [
+  {mult:2.4, headline:'DOGO ignites on launch day, up huge out of the gate', dir:'up'},
+  {mult:0.5, headline:'DOGO craters as early buyers cash out', dir:'down'},
+];
+
+const TICK_MS = 1250;
+// First-time players should see whatever stock they buy carry them to the
+// crypto unlock around this mark, so the goal/loop is obvious fast. Recomputed
+// every tick from the current shortfall, so it self-corrects regardless of
+// which asset(s) they hold, when they buy, or how a bad random tick lands.
+const ONBOARDING_TARGET_MS = 5 * 60 * 1000;
+const ONBOARDING_MIN_TICKS = 10; // floor so a late buy never reads as one obvious jump
 const RETIRE_TIERS = [
   {label:'Comfortable', amt:10000},
   {label:'Retired', amt:50000},
@@ -294,6 +308,11 @@ function defaultState(){
     highestNetWorth: 1000,
     cheatWarned: false,
     dayStartNetWorth: 1000,
+    unlockedTiersSeen: [],
+    cryptoLaunchPlayed: false,
+    cryptoLaunchQueue: [],
+    firstPlayAt: Date.now(),
+    onboardingBoostEligible: true,
   };
 }
 
@@ -311,6 +330,22 @@ function loadState(){
     if(state.startPrices[a.id] === undefined) state.startPrices[a.id] = a.price;
     if(state.holdings[a.id] === undefined) state.holdings[a.id] = 0;
   });
+  // Backfill for saves from before scripted unlock events existed, so returning
+  // players don't retroactively get a "surprise" pump/fanfare for tiers they
+  // already unlocked long ago.
+  if(state.unlockedTiersSeen === undefined){
+    state.unlockedTiersSeen = TIERS.filter(t=>state.highestNetWorth >= t.unlockAt).map(t=>t.id);
+  }
+  if(state.cryptoLaunchPlayed === undefined){
+    state.cryptoLaunchPlayed = state.unlockedTiersSeen.includes('crypto');
+  }
+  if(state.cryptoLaunchQueue === undefined) state.cryptoLaunchQueue = [];
+  // Same deal: saves from before the onboarding ramp existed shouldn't suddenly
+  // get a boosted stock the next time they open the app.
+  if(state.firstPlayAt === undefined){
+    state.firstPlayAt = 0;
+    state.onboardingBoostEligible = false;
+  }
 }
 
 function saveState(){ localStorage.setItem(SAVE_KEY, JSON.stringify(state)); }
@@ -326,7 +361,13 @@ function resetGame(){
 /* ---------- price simulation ---------- */
 function tickPrices(){
   let bigMove = null;
+  let scriptedAssetThisTick = null;
+  if(state.cryptoLaunchQueue && state.cryptoLaunchQueue.length){
+    applyCryptoLaunchStep();
+    scriptedAssetThisTick = CRYPTO_LAUNCH_ASSET;
+  }
   allAssets().forEach(a=>{
+    if(a.id === scriptedAssetThisTick) return; // scripted event owns this tick's move
     const shock = (Math.random() < a.vol * 0.15) ? (Math.random()<0.5?-1:1) * a.vol * 6 : 0;
     const change = a.drift + (Math.random()*2-1) * a.vol + shock;
     let p = state.prices[a.id] * (1 + change);
@@ -340,14 +381,59 @@ function tickPrices(){
   if(bigMove && Math.random() < 0.6){
     pushHeadline(`${bigMove.asset.name} ${bigMove.dir==='up'?'skyrockets':'craters'} on ${bigMove.dir==='up'?'hype':'panic'} selling`, bigMove.dir);
   }
+  applyOnboardingBoost();
   accrueDebt();
   saveState();
   render();
 }
 
+function applyOnboardingBoost(){
+  if(!state.onboardingBoostEligible || state.unlockedTiersSeen.includes('crypto')) return;
+  const held = ASSET_DEFS.filter(a=>a.tier==='stocks' && (state.holdings[a.id]||0) > 0);
+  if(!held.length) return; // nothing bought yet, nothing to nudge
+  const shortfall = TIERS.find(t=>t.id==='crypto').unlockAt - netWorth();
+  if(shortfall <= 0) return;
+  const elapsed = Date.now() - state.firstPlayAt;
+  const remainingMs = Math.max(0, ONBOARDING_TARGET_MS - elapsed);
+  const ticksRemaining = Math.max(ONBOARDING_MIN_TICKS, remainingMs / TICK_MS);
+  const heldValue = held.reduce((sum,a)=> sum + state.holdings[a.id]*state.prices[a.id], 0);
+  const boostDollars = shortfall / ticksRemaining;
+  held.forEach(a=>{
+    const share = (state.holdings[a.id]*state.prices[a.id]) / heldValue;
+    state.prices[a.id] += (boostDollars * share) / state.holdings[a.id];
+  });
+}
+
+function applyCryptoLaunchStep(){
+  if(!state.cryptoLaunchQueue || !state.cryptoLaunchQueue.length) return;
+  const step = state.cryptoLaunchQueue.shift();
+  state.prices[CRYPTO_LAUNCH_ASSET] = Math.max(0.01, state.prices[CRYPTO_LAUNCH_ASSET] * step.mult);
+  pushHeadline(step.headline, step.dir);
+}
+
+function triggerCryptoLaunch(){
+  if(state.cryptoLaunchPlayed) return;
+  state.cryptoLaunchPlayed = true;
+  state.cryptoLaunchQueue = CRYPTO_LAUNCH_SEQUENCE.slice();
+  applyCryptoLaunchStep(); // first beat lands immediately, alongside the unlock toast
+}
+
+function checkTierUnlocks(){
+  TIERS.forEach(t=>{
+    if(state.highestNetWorth >= t.unlockAt && !state.unlockedTiersSeen.includes(t.id)){
+      state.unlockedTiersSeen.push(t.id);
+      if(t.unlockAt > 0){
+        showToast(`${t.label} tier unlocked`);
+        pushHeadline(t.line, null);
+      }
+      if(t.id === 'crypto') triggerCryptoLaunch();
+    }
+  });
+}
+
 function accrueDebt(){
   if(state.debt > 0){
-    state.debt = state.debt * (1 + state.debtRate/6000); // slow drip so it's visible over a session
+    state.debt = state.debt * (1 + state.debtRate/12000); // slow drip so it's visible over a session
   }
 }
 
@@ -388,6 +474,7 @@ function currentTierLabel(){
 function render(){
   const nw = netWorth();
   if(nw > state.highestNetWorth) state.highestNetWorth = nw;
+  checkTierUnlocks();
   document.getElementById('netWorthVal').textContent = fmt(nw);
   const delta = nw - state.dayStartNetWorth;
   const deltaEl = document.getElementById('netWorthDelta');
@@ -545,7 +632,8 @@ function openTrade(id){
 function closeOverlay(id){ document.getElementById(id).classList.remove('show'); }
 function quickAmt(pct){
   if(!currentTradeAsset) return;
-  const max = state.cash;
+  const heldVal = (state.holdings[currentTradeAsset.id]||0) * state.prices[currentTradeAsset.id];
+  const max = Math.max(state.cash, heldVal); // whichever action (buy vs sell) they tap next, this is its real ceiling
   document.getElementById('tradeAmount').value = Math.floor(max * (pct/100));
 }
 function doTrade(dir){
@@ -724,7 +812,7 @@ function showToast(msg){
 loadState();
 renderTicker();
 render();
-tickHandle = setInterval(tickPrices, 2500);
+tickHandle = setInterval(tickPrices, TICK_MS);
 </script>
 </body>
 </html>

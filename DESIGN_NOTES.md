@@ -22,8 +22,20 @@ point new players start with.
 
 **Tiered unlocks by net worth**, not by level or time played — this ties
 progression directly to the thing the game is about. Order: stocks →
-crypto → predictions → forex → (future) real estate. Each unlock should
-get a small fanfare moment (toast + a ticker headline acknowledging it).
+crypto → predictions → forex → (future) real estate. Each unlock gets a
+small fanfare moment (toast + a ticker headline acknowledging it) — this
+is the baseline for every tier.
+
+Crypto's unlock goes further: rather than a blocking interstitial, the
+first-ever crossing into the crypto tier scripts a one-time pump-then-dump
+on DOGO (the meme-crypto "slot machine" asset), synced with matching
+ticker headlines. The unlock dramatizes itself through the mechanic
+instead of interrupting the session — deliberately in keeping with "ads
+should never be interstitial or forced" tone below: nothing here should
+block the player from the market they just earned access to. If other
+tiers eventually want more than the toast+ticker baseline (predictions,
+forex), follow the same pattern: something native to that market's
+mechanic, never a modal.
 
 **Safe havens** (stablecoin, index fund, bond) are always available,
 never gated. They're intentionally boring — the joke is that most players

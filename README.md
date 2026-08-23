@@ -40,7 +40,10 @@ app — no app store needed for this playtest phase.
 ## What's real vs stubbed for this POC
 
 **Working, matches what we designed:**
-- Tiered market unlocks by net worth (stocks → crypto → predictions → forex)
+- Tiered market unlocks by net worth (stocks → crypto → predictions → forex),
+  each with a toast + ticker headline fanfare the first time it's crossed.
+  Crypto's unlock additionally scripts a one-time pump-then-dump on DOGO so
+  the unlock dramatizes itself through the sim instead of a popup.
 - Safe havens (stablecoin, index fund, bond) always available
 - Live price simulation: random walk per asset with per-asset volatility,
   occasional shock events that also push ticker headlines
@@ -69,7 +72,10 @@ app — no app store needed for this playtest phase.
 
 Everything you'll want to iterate on while testing lives near the top of the
 `<script>` block in `index.html`:
-- `TIERS` — unlock thresholds per market tier
+- `TIERS` — unlock thresholds per market tier, plus the ticker `line` shown
+  when each is first crossed
+- `CRYPTO_LAUNCH_SEQUENCE` — the scripted pump/dump steps applied to DOGO
+  when the crypto tier unlocks
 - `RETIRE_TIERS` — retirement milestone amounts
 - `ASSET_DEFS` / `SAFE_DEFS` — starting price, volatility, and drift per asset
 - `HEADLINE_POOL` — the static joke ticker lines
