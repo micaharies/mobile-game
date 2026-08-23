@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Degenerate Capital</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#121316">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#121316; --surface1:#1a1c20; --surface2:#212429; --surface3:#2a2d33;
+  --border:#33363c; --border-strong:#44474e;
+  --text:#e9e7df; --text-dim:#9a9890; --text-faint:#66645d;
+  --cash:#e0a530; --cash-dim:#8a6a2a;
+  --up:#5dcaa5; --up-dim:#1d4c3d;
+  --down:#e2544b; --down-dim:#5c221e;
+  --lock:#4a4d54;
+  --safe:#5b8fd9;
+  --font-ui: 'Inter', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+html,body{background:var(--bg); color:var(--text); font-family:var(--font-ui); -webkit-tap-highlight-color:transparent; overscroll-behavior:none;}
+body{max-width:480px; margin:0 auto; min-height:100vh; display:flex; flex-direction:column; padding-bottom:72px;}
+button{font-family:var(--font-ui); cursor:pointer; border:none; background:none; color:inherit;}
+input{font-family:var(--font-mono);}
+
+/* ===== Ticker ===== */
+#ticker-wrap{background:#0a0a0c; border-bottom:1px solid var(--border); overflow:hidden; white-space:nowrap; height:30px; display:flex; align-items:center; position:relative;}
+#ticker{display:inline-block; font-family:var(--font-mono); font-size:12px; color:var(--text-dim); padding-left:100%; animation:scrollTicker 28s linear infinite;}
+#ticker span{margin-right:36px;}
+#ticker span.up{color:var(--up);}
+#ticker span.down{color:var(--down);}
+@keyframes scrollTicker{ from{transform:translateX(0);} to{transform:translateX(-100%);} }
+
+/* ===== Header ===== */
+header{padding:18px 16px 14px; border-bottom:1px solid var(--border);}
+.networth-row{display:flex; justify-content:space-between; align-items:flex-end;}
+.networth-label{font-size:11px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.06em;}
+.networth-val{font-family:var(--font-mono); font-size:30px; font-weight:700; margin-top:2px;}
+.networth-delta{font-family:var(--font-mono); font-size:13px; margin-top:2px;}
+.tier-badge{font-size:11px; color:var(--cash); border:1px solid var(--cash-dim); border-radius:20px; padding:4px 10px; white-space:nowrap;}
+.subrow{display:flex; gap:14px; margin-top:10px; font-family:var(--font-mono); font-size:12px; color:var(--text-dim);}
+.subrow b{color:var(--text);}
+.debt-tag{color:var(--down);}
+
+/* ===== Nav ===== */
+nav{position:fixed; bottom:0; left:50%; transform:translateX(-50%); width:100%; max-width:480px; background:var(--surface1); border-top:1px solid var(--border); display:flex; z-index:20;}
+nav button{flex:1; padding:12px 0 10px; font-size:11px; color:var(--text-faint); display:flex; flex-direction:column; align-items:center; gap:3px;}
+nav button.active{color:var(--cash);}
+nav .dot{width:18px; height:18px; border-radius:5px; background:var(--surface3); display:flex; align-items:center; justify-content:center; font-size:11px;}
+nav button.active .dot{background:var(--cash); color:#1a1305;}
+
+/* ===== Views ===== */
+main{flex:1; padding:16px;}
+.view{display:none;}
+.view.active{display:block;}
+h2{font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-faint); margin:18px 0 8px;}
+h2:first-child{margin-top:0;}
+
+/* ===== Asset card ===== */
+.asset{display:flex; align-items:center; justify-content:space-between; background:var(--surface1); border:1px solid var(--border); border-radius:12px; padding:12px 14px; margin-bottom:8px;}
+.asset.locked{opacity:.55;}
+.asset-left{display:flex; align-items:center; gap:10px; min-width:0;}
+.asset-icon{width:34px; height:34px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-family:var(--font-mono); font-size:13px; font-weight:700; flex-shrink:0;}
+.asset-name{font-size:14px; font-weight:500;}
+.asset-sub{font-size:11px; color:var(--text-faint); margin-top:1px;}
+.asset-right{text-align:right; flex-shrink:0;}
+.asset-price{font-family:var(--font-mono); font-size:14px; font-weight:500;}
+.asset-change{font-family:var(--font-mono); font-size:11px; margin-top:1px;}
+.lock-note{font-size:11px; color:var(--text-faint); margin-top:2px;}
+
+/* ===== Buttons ===== */
+.btn{display:inline-block; padding:9px 16px; border-radius:8px; border:1px solid var(--border-strong); font-size:13px; font-weight:500; color:var(--text); background:var(--surface2);}
+.btn:active{transform:scale(.97);}
+.btn-primary{background:var(--cash); color:#1a1305; border-color:var(--cash);}
+.btn-block{width:100%; text-align:center; padding:12px;}
+.btn-row{display:flex; gap:8px;}
+.btn-row .btn{flex:1;}
+.btn-danger{border-color:var(--down); color:var(--down);}
+.btn-ghost{border-color:transparent; background:none; color:var(--text-dim);}
+
+/* ===== Modal ===== */
+.overlay{position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; align-items:flex-end; justify-content:center; z-index:50;}
+.overlay.show{display:flex;}
+.sheet{background:var(--surface1); border:1px solid var(--border); border-radius:18px 18px 0 0; width:100%; max-width:480px; padding:20px 18px calc(20px + env(safe-area-inset-bottom)); max-height:88vh; overflow-y:auto;}
+.sheet-handle{width:36px; height:4px; background:var(--surface3); border-radius:4px; margin:0 auto 14px;}
+.sheet h3{font-size:16px; font-weight:500; margin-bottom:4px;}
+.sheet p.desc{font-size:12px; color:var(--text-dim); margin-bottom:16px;}
+.amount-row{display:flex; align-items:center; gap:10px; background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:12px;}
+.amount-row input{background:none; border:none; color:var(--text); font-size:20px; width:100%; outline:none;}
+.quick-amts{display:flex; gap:6px; margin-bottom:16px;}
+.quick-amts button{flex:1; padding:7px 0; font-size:12px; border:1px solid var(--border); border-radius:7px; background:var(--surface2);}
+.close-x{position:absolute; top:16px; right:16px; font-size:20px; color:var(--text-faint);}
+
+/* ===== Broke modal ===== */
+.broke-icon{font-size:34px; text-align:center; margin-bottom:6px;}
+.broke-title{font-size:18px; font-weight:600; text-align:center; margin-bottom:4px;}
+.broke-sub{font-size:13px; color:var(--text-dim); text-align:center; margin-bottom:18px;}
+.recover-option{display:flex; align-items:center; gap:12px; background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:13px; margin-bottom:9px; text-align:left; width:100%;}
+.recover-option .oicon{width:38px; height:38px; border-radius:10px; background:var(--surface3); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0;}
+.recover-option .otext{flex:1;}
+.recover-option .otitle{font-size:14px; font-weight:500;}
+.recover-option .osub{font-size:11.5px; color:var(--text-faint); margin-top:2px;}
+
+/* ===== Minigame ===== */
+.mg-title{font-size:15px; font-weight:500; text-align:center; margin-bottom:2px;}
+.mg-sub{font-size:12px; color:var(--text-faint); text-align:center; margin-bottom:16px;}
+.mg-result{text-align:center; min-height:56px; margin-top:12px;}
+.mg-payout{font-family:var(--font-mono); font-size:24px; font-weight:700; color:var(--up);}
+.track{position:relative; height:34px; background:var(--surface2); border-radius:8px; overflow:hidden; margin-bottom:16px;}
+.zone{position:absolute; top:0; height:100%; background:var(--up-dim); border-left:1px solid var(--up); border-right:1px solid var(--up);}
+.marker{position:absolute; top:0; width:3px; height:100%; background:var(--cash);}
+.grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:16px;}
+.cell{height:58px; border-radius:8px; background:var(--surface2); display:flex; align-items:center; justify-content:center; font-size:22px;}
+
+/* ===== Toast ===== */
+#toast{position:fixed; top:44px; left:50%; transform:translateX(-50%); background:var(--surface3); border:1px solid var(--border-strong); border-radius:10px; padding:10px 16px; font-size:13px; z-index:80; opacity:0; transition:opacity .25s; pointer-events:none; max-width:90%; text-align:center;}
+#toast.show{opacity:1;}
+
+.empty{font-size:12px; color:var(--text-faint); text-align:center; padding:24px 0;}
+.tag{font-size:10px; padding:2px 7px; border-radius:20px; font-weight:600;}
+.tag-safe{background:var(--up-dim); color:var(--up);}
+.tag-risk{background:var(--down-dim); color:var(--down);}
+footer.reset-row{padding:24px 16px 8px; text-align:center;}
+footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration:underline;}
+</style>
+</head>
+<body>
+
+<div id="ticker-wrap"><div id="ticker"></div></div>
+
+<header>
+  <div class="networth-row">
+    <div>
+      <div class="networth-label">Net worth</div>
+      <div class="networth-val" id="netWorthVal">$0</div>
+      <div class="networth-delta" id="netWorthDelta">+$0 today</div>
+    </div>
+    <div class="tier-badge" id="tierBadge">Rookie</div>
+  </div>
+  <div class="subrow">
+    <div>Cash: <b id="cashVal">$0</b></div>
+    <div class="debt-tag" id="debtRow" style="display:none;">Debt: <b id="debtVal">$0</b></div>
+  </div>
+</header>
+
+<main>
+  <div class="view active" id="view-portfolio">
+    <h2>Holdings</h2>
+    <div id="holdingsList"></div>
+    <h2>Retirement progress</h2>
+    <div id="retireProgress"></div>
+  </div>
+
+  <div class="view" id="view-markets">
+    <h2>Degenerate markets</h2>
+    <div id="riskyList"></div>
+    <h2>Safe havens</h2>
+    <div id="safeList"></div>
+  </div>
+
+  <div class="view" id="view-log">
+    <h2>Recent activity</h2>
+    <div id="logList"></div>
+    <footer class="reset-row"><button onclick="resetGame()">Reset save data</button></footer>
+  </div>
+</main>
+
+<nav>
+  <button class="active" data-view="portfolio" onclick="switchView('portfolio')"><span class="dot">$</span>Portfolio</button>
+  <button data-view="markets" onclick="switchView('markets')"><span class="dot">M</span>Markets</button>
+  <button data-view="log" onclick="switchView('log')"><span class="dot">L</span>Activity</button>
+</nav>
+
+<div id="toast"></div>
+
+<!-- Trade sheet -->
+<div class="overlay" id="tradeOverlay">
+  <div class="sheet">
+    <span class="close-x" onclick="closeOverlay('tradeOverlay')">&times;</span>
+    <div class="sheet-handle"></div>
+    <h3 id="tradeAssetName">Asset</h3>
+    <p class="desc" id="tradeAssetPrice">$0.00 per unit</p>
+    <div class="amount-row">
+      <span style="color:var(--text-faint); font-size:14px;">$</span>
+      <input type="number" id="tradeAmount" placeholder="0" min="0">
+    </div>
+    <div class="quick-amts">
+      <button onclick="quickAmt(25)">25%</button>
+      <button onclick="quickAmt(50)">50%</button>
+      <button onclick="quickAmt(100)">Max</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-block" onclick="doTrade('sell')">Sell</button>
+      <button class="btn btn-primary btn-block" onclick="doTrade('buy')">Buy</button>
+    </div>
+  </div>
+</div>
+
+<!-- Broke sheet -->
+<div class="overlay" id="brokeOverlay">
+  <div class="sheet">
+    <div class="broke-icon">📉</div>
+    <div class="broke-title">You're tapped out</div>
+    <div class="broke-sub">Cash's gone and nothing's left to sell. Pick your comeback.</div>
+    <button class="recover-option" onclick="startRecovery('beg')">
+      <div class="oicon">🥺</div>
+      <div class="otext"><div class="otitle">Beg on the street corner</div><div class="osub">Quick, low effort, small payout</div></div>
+    </button>
+    <button class="recover-option" onclick="startRecovery('service')">
+      <div class="oicon">🧹</div>
+      <div class="otext"><div class="otitle">Community service</div><div class="osub">A bit more effort, better payout</div></div>
+    </button>
+    <button class="recover-option" onclick="takeLoan()">
+      <div class="oicon">🦈</div>
+      <div class="otext"><div class="otitle">Loan shark bailout</div><div class="osub">Instant $500, +8% interest weekly</div></div>
+    </button>
+  </div>
+</div>
+
+<!-- Minigame sheet -->
+<div class="overlay" id="mgOverlay">
+  <div class="sheet" id="mgSheet"></div>
+</div>
+
+<script>
+/* ========================================================================
+   DEGENERATE CAPITAL — client-only proof of concept
+   All simulation, pricing, and payouts run in the browser via localStorage.
+   This is for playtesting the LOOP, not a production architecture:
+   in the real build the market tick, trade validation, and minigame
+   payout math all move server-side so nothing here is client-authoritative.
+   ======================================================================== */
+
+const SAVE_KEY = 'degcap_save_v1';
+const TIERS = [
+  {id:'stocks', label:'Stocks', unlockAt:0},
+  {id:'crypto', label:'Crypto', unlockAt:2000},
+  {id:'prediction', label:'Predictions', unlockAt:5000},
+  {id:'forex', label:'Forex', unlockAt:15000},
+];
+const RETIRE_TIERS = [
+  {label:'Comfortable', amt:10000},
+  {label:'Retired', amt:50000},
+  {label:'Legend', amt:250000},
+];
+
+const ASSET_DEFS = [
+  {id:'aapl', name:'AAPL', sub:'Big tech stock', tier:'stocks', type:'stock', price:180, vol:0.006, drift:0.0001, icon:'A', color:'var(--safe)'},
+  {id:'gmtx', name:'GMTX', sub:'Auto manufacturer', tier:'stocks', type:'stock', price:64, vol:0.008, drift:0.0001, icon:'G', color:'var(--safe)'},
+  {id:'ncla', name:'NCLA', sub:'Cruise line stock', tier:'stocks', type:'stock', price:22, vol:0.012, drift:0, icon:'N', color:'var(--safe)'},
+  {id:'doge', name:'DOGO', sub:'Meme crypto', tier:'crypto', type:'crypto', price:0.6, vol:0.05, drift:-0.0002, icon:'D', color:'var(--cash)'},
+  {id:'btcx', name:'BTCX', sub:'Flagship crypto', tier:'crypto', type:'crypto', price:420, vol:0.03, drift:0.0002, icon:'B', color:'var(--cash)'},
+  {id:'rain', name:'Rain tomorrow', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.5, vol:0.04, drift:0, icon:'?', color:'var(--down)'},
+  {id:'elec', name:'Mayor wins reelection', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.62, vol:0.035, drift:0, icon:'?', color:'var(--down)'},
+  {id:'eurusd', name:'EUR/USD', sub:'Forex pair', tier:'forex', type:'forex', price:1.08, vol:0.004, drift:0, icon:'€', color:'var(--text-dim)'},
+];
+const SAFE_DEFS = [
+  {id:'stable', name:'StableCoin', sub:'Nearly flat, crash-proof', type:'safe', price:1, vol:0.0005, drift:0.00005, icon:'S', color:'var(--up)'},
+  {id:'index', name:'Index Fund', sub:'Slow and steady', type:'safe', price:100, vol:0.002, drift:0.0002, icon:'I', color:'var(--up)'},
+  {id:'bond', name:'Treasury Bond', sub:'Boring on purpose', type:'safe', price:50, vol:0.0008, drift:0.0001, icon:'T', color:'var(--up)'},
+];
+
+const HEADLINE_POOL = [
+  "Analysts baffled by literally everything",
+  "Local trader discovers stop-loss orders exist",
+  "Meme coin community 'still bullish', claims group chat",
+  "Fed chair spotted buying lottery tickets",
+  "Report: nobody actually understands forex",
+  "Prediction market user confidently wrong again",
+  "Index fund investors bored, financially fine",
+  "Breaking: number went up, then down, then up",
+];
+
+let state = null;
+let tickHandle = null;
+let currentTradeAsset = null;
+let recoverySession = null;
+
+function defaultState(){
+  const holdings = {};
+  return {
+    cash: 1000,
+    debt: 0,
+    debtRate: 0.08,
+    holdings,
+    prices: {},
+    startPrices: {},
+    log: [],
+    highestNetWorth: 1000,
+    cheatWarned: false,
+    dayStartNetWorth: 1000,
+  };
+}
+
+function allAssets(){ return ASSET_DEFS.concat(SAFE_DEFS); }
+
+function loadState(){
+  const raw = localStorage.getItem(SAVE_KEY);
+  if(raw){
+    try{ state = JSON.parse(raw); }catch(e){ state = defaultState(); }
+  } else {
+    state = defaultState();
+  }
+  allAssets().forEach(a=>{
+    if(state.prices[a.id] === undefined) state.prices[a.id] = a.price;
+    if(state.startPrices[a.id] === undefined) state.startPrices[a.id] = a.price;
+    if(state.holdings[a.id] === undefined) state.holdings[a.id] = 0;
+  });
+}
+
+function saveState(){ localStorage.setItem(SAVE_KEY, JSON.stringify(state)); }
+
+function resetGame(){
+  if(!confirm('Wipe your save and start over?')) return;
+  localStorage.removeItem(SAVE_KEY);
+  loadState();
+  render();
+  showToast('Save wiped. Fresh start.');
+}
+
+/* ---------- price simulation ---------- */
+function tickPrices(){
+  let bigMove = null;
+  allAssets().forEach(a=>{
+    const shock = (Math.random() < a.vol * 0.15) ? (Math.random()<0.5?-1:1) * a.vol * 6 : 0;
+    const change = a.drift + (Math.random()*2-1) * a.vol + shock;
+    let p = state.prices[a.id] * (1 + change);
+    if(a.type === 'prediction') p = Math.min(0.97, Math.max(0.03, p));
+    else p = Math.max(0.01, p);
+    state.prices[a.id] = p;
+    if(Math.abs(shock) > 0){
+      bigMove = {asset:a, dir: shock>0?'up':'down'};
+    }
+  });
+  if(bigMove && Math.random() < 0.6){
+    pushHeadline(`${bigMove.asset.name} ${bigMove.dir==='up'?'skyrockets':'craters'} on ${bigMove.dir==='up'?'hype':'panic'} selling`, bigMove.dir);
+  }
+  accrueDebt();
+  saveState();
+  render();
+}
+
+function accrueDebt(){
+  if(state.debt > 0){
+    state.debt = state.debt * (1 + state.debtRate/6000); // slow drip so it's visible over a session
+  }
+}
+
+/* ---------- ticker ---------- */
+let tickerQueue = [];
+function pushHeadline(text, dir){
+  tickerQueue.push({text, dir: dir||null});
+  if(tickerQueue.length > 12) tickerQueue.shift();
+  renderTicker();
+}
+function renderTicker(){
+  const el = document.getElementById('ticker');
+  const combined = tickerQueue.length ? tickerQueue : HEADLINE_POOL.map(h=>({text:h,dir:null}));
+  el.innerHTML = combined.map(h=>`<span class="${h.dir||''}">${h.text}</span>`).join('');
+}
+setInterval(()=>{
+  if(Math.random()<0.5) pushHeadline(HEADLINE_POOL[Math.floor(Math.random()*HEADLINE_POOL.length)], null);
+}, 9000);
+
+/* ---------- derived values ---------- */
+function holdingsValue(){
+  let v = 0;
+  allAssets().forEach(a=>{ v += (state.holdings[a.id]||0) * state.prices[a.id]; });
+  return v;
+}
+function netWorth(){ return state.cash + holdingsValue() - state.debt; }
+function unlockedTierIds(){
+  const nw = state.highestNetWorth;
+  return TIERS.filter(t=>nw >= t.unlockAt).map(t=>t.id);
+}
+function currentTierLabel(){
+  const nw = netWorth();
+  const unlocked = TIERS.filter(t=>nw >= t.unlockAt);
+  return unlocked.length ? unlocked[unlocked.length-1].label + ' tier' : 'Rookie';
+}
+
+/* ---------- rendering ---------- */
+function render(){
+  const nw = netWorth();
+  if(nw > state.highestNetWorth) state.highestNetWorth = nw;
+  document.getElementById('netWorthVal').textContent = fmt(nw);
+  const delta = nw - state.dayStartNetWorth;
+  const deltaEl = document.getElementById('netWorthDelta');
+  deltaEl.textContent = (delta>=0?'+':'') + fmt(delta) + ' this session';
+  deltaEl.style.color = delta>=0 ? 'var(--up)' : 'var(--down)';
+  document.getElementById('cashVal').textContent = fmt(state.cash);
+  document.getElementById('tierBadge').textContent = currentTierLabel();
+
+  if(state.debt > 0.5){
+    document.getElementById('debtRow').style.display = 'block';
+    document.getElementById('debtVal').textContent = fmt(state.debt);
+  } else {
+    document.getElementById('debtRow').style.display = 'none';
+  }
+
+  renderMarkets();
+  renderHoldings();
+  renderRetirement();
+  renderLog();
+  checkBroke();
+}
+
+function fmt(n){
+  const neg = n < 0;
+  const v = Math.abs(n);
+  let s = '$' + v.toLocaleString(undefined,{maximumFractionDigits: v<10?2:0});
+  return neg ? '-'+s : s;
+}
+
+function priceChangePct(a){
+  const start = state.startPrices[a.id];
+  return ((state.prices[a.id]-start)/start)*100;
+}
+
+function renderMarkets(){
+  const unlocked = unlockedTierIds();
+  const risky = document.getElementById('riskyList');
+  const safe = document.getElementById('safeList');
+  risky.innerHTML = '';
+  safe.innerHTML = '';
+
+  ASSET_DEFS.forEach(a=>{
+    const isLocked = !unlocked.includes(a.tier);
+    const price = state.prices[a.id];
+    const chg = priceChangePct(a);
+    const tierInfo = TIERS.find(t=>t.id===a.tier);
+    risky.innerHTML += `
+      <div class="asset ${isLocked?'locked':''}" ${isLocked?'':`onclick="openTrade('${a.id}')"`}>
+        <div class="asset-left">
+          <div class="asset-icon" style="background:${isLocked?'var(--surface3)':'color-mix(in srgb, '+a.color+' 18%, var(--surface2))'}; color:${isLocked?'var(--text-faint)':a.color};">${isLocked?'&#128274;':a.icon}</div>
+          <div>
+            <div class="asset-name">${a.name}</div>
+            <div class="asset-sub">${isLocked?`Unlocks at $${tierInfo.unlockAt.toLocaleString()} net worth`:a.sub}</div>
+          </div>
+        </div>
+        <div class="asset-right">
+          <div class="asset-price">${a.type==='prediction'? Math.round(price*100)+'&cent;' : '$'+price.toFixed(price<5?3:2)}</div>
+          <div class="asset-change" style="color:${chg>=0?'var(--up)':'var(--down)'}">${chg>=0?'+':''}${chg.toFixed(1)}%</div>
+        </div>
+      </div>`;
+  });
+
+  SAFE_DEFS.forEach(a=>{
+    const price = state.prices[a.id];
+    const chg = priceChangePct(a);
+    safe.innerHTML += `
+      <div class="asset" onclick="openTrade('${a.id}')">
+        <div class="asset-left">
+          <div class="asset-icon" style="background:color-mix(in srgb, ${a.color} 18%, var(--surface2)); color:${a.color};">${a.icon}</div>
+          <div>
+            <div class="asset-name">${a.name}</div>
+            <div class="asset-sub">${a.sub}</div>
+          </div>
+        </div>
+        <div class="asset-right">
+          <div class="asset-price">$${price.toFixed(2)}</div>
+          <div class="asset-change" style="color:${chg>=0?'var(--up)':'var(--down)'}">${chg>=0?'+':''}${chg.toFixed(1)}%</div>
+        </div>
+      </div>`;
+  });
+}
+
+function renderHoldings(){
+  const el = document.getElementById('holdingsList');
+  const held = allAssets().filter(a=>(state.holdings[a.id]||0) > 0.0001);
+  if(!held.length){
+    el.innerHTML = '<div class="empty">Nothing in your portfolio yet. Head to Markets to place your first trade.</div>';
+    return;
+  }
+  el.innerHTML = held.map(a=>{
+    const qty = state.holdings[a.id];
+    const val = qty * state.prices[a.id];
+    const chg = priceChangePct(a);
+    const tag = a.type==='safe' ? '<span class="tag tag-safe">Safe</span>' : '<span class="tag tag-risk">Risky</span>';
+    return `
+      <div class="asset" onclick="openTrade('${a.id}')">
+        <div class="asset-left">
+          <div class="asset-icon" style="background:color-mix(in srgb, ${a.color} 18%, var(--surface2)); color:${a.color};">${a.icon}</div>
+          <div>
+            <div class="asset-name">${a.name} ${tag}</div>
+            <div class="asset-sub">${qty.toFixed(qty<1?4:2)} units</div>
+          </div>
+        </div>
+        <div class="asset-right">
+          <div class="asset-price">${fmt(val)}</div>
+          <div class="asset-change" style="color:${chg>=0?'var(--up)':'var(--down)'}">${chg>=0?'+':''}${chg.toFixed(1)}%</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderRetirement(){
+  const nw = netWorth();
+  const el = document.getElementById('retireProgress');
+  el.innerHTML = RETIRE_TIERS.map(t=>{
+    const pct = Math.min(100, (nw/t.amt)*100);
+    const reached = nw >= t.amt;
+    return `
+      <div style="margin-bottom:14px;">
+        <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:5px;">
+          <span style="color:${reached?'var(--up)':'var(--text-dim)'}">${t.label}${reached?' — reached':''}</span>
+          <span style="color:var(--text-faint); font-family:var(--font-mono);">$${t.amt.toLocaleString()}</span>
+        </div>
+        <div style="height:6px; background:var(--surface2); border-radius:4px; overflow:hidden;">
+          <div style="height:100%; width:${pct}%; background:${reached?'var(--up)':'var(--cash)'};"></div>
+        </div>
+      </div>`;
+  }).join('') + `<p style="font-size:11px; color:var(--text-faint); margin-top:6px;">Retirement requires the amount parked in safe havens, not just paper gains — wire that check up when this becomes a real build.</p>`;
+}
+
+function renderLog(){
+  const el = document.getElementById('logList');
+  if(!state.log.length){ el.innerHTML = '<div class="empty">No activity yet.</div>'; return; }
+  el.innerHTML = state.log.slice().reverse().map(l=>`
+    <div class="asset">
+      <div class="asset-left"><div><div class="asset-name">${l.text}</div><div class="asset-sub">${l.time}</div></div></div>
+      <div class="asset-right"><div class="asset-price" style="color:${l.color||'var(--text)'}">${l.amt||''}</div></div>
+    </div>`).join('');
+}
+
+function addLog(text, amt, color){
+  state.log.push({text, amt, color, time: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})});
+  if(state.log.length > 40) state.log.shift();
+}
+
+/* ---------- trading ---------- */
+function openTrade(id){
+  currentTradeAsset = allAssets().find(a=>a.id===id);
+  document.getElementById('tradeAssetName').textContent = currentTradeAsset.name;
+  const price = state.prices[id];
+  document.getElementById('tradeAssetPrice').textContent = (currentTradeAsset.type==='prediction'? Math.round(price*100)+'¢' : '$'+price.toFixed(2)) + ' per unit · you own ' + (state.holdings[id]||0).toFixed(2);
+  document.getElementById('tradeAmount').value = '';
+  document.getElementById('tradeOverlay').classList.add('show');
+}
+function closeOverlay(id){ document.getElementById(id).classList.remove('show'); }
+function quickAmt(pct){
+  if(!currentTradeAsset) return;
+  const max = state.cash;
+  document.getElementById('tradeAmount').value = Math.floor(max * (pct/100));
+}
+function doTrade(dir){
+  const amt = parseFloat(document.getElementById('tradeAmount').value);
+  if(!amt || amt <= 0){ showToast('Enter an amount first'); return; }
+  const a = currentTradeAsset;
+  const price = state.prices[a.id];
+  if(dir === 'buy'){
+    if(amt > state.cash){ showToast("You don't have that much cash"); return; }
+    state.cash -= amt;
+    state.holdings[a.id] = (state.holdings[a.id]||0) + amt/price;
+    addLog(`Bought ${a.name}`, '-'+fmt(amt), 'var(--down)');
+  } else {
+    const heldVal = (state.holdings[a.id]||0) * price;
+    const sellAmt = Math.min(amt, heldVal);
+    if(sellAmt <= 0){ showToast("You don't own any of that"); return; }
+    state.holdings[a.id] -= sellAmt/price;
+    state.cash += sellAmt;
+    addLog(`Sold ${a.name}`, '+'+fmt(sellAmt), 'var(--up)');
+  }
+  saveState();
+  render();
+  closeOverlay('tradeOverlay');
+}
+
+/* ---------- broke / recovery flow ---------- */
+function checkBroke(){
+  if(state.cash > 1) return;
+  const sellable = allAssets().reduce((sum,a)=> sum + (state.holdings[a.id]||0)*state.prices[a.id], 0);
+  if(sellable > 5) return;
+  document.getElementById('brokeOverlay').classList.add('show');
+}
+
+function takeLoan(){
+  state.cash += 500;
+  state.debt += 500;
+  addLog('Took a loan shark bailout', '+$500', 'var(--cash)');
+  saveState();
+  document.getElementById('brokeOverlay').classList.remove('show');
+  render();
+  showToast("Cash in hand. That interest won't forgive itself.");
+}
+
+function startRecovery(kind){
+  document.getElementById('brokeOverlay').classList.remove('show');
+  recoverySession = kind;
+  const games = ['tap','whack'];
+  const game = games[Math.floor(Math.random()*games.length)];
+  openMinigame(game, kind);
+}
+
+/* ---------- minigames ---------- */
+function openMinigame(game, kind){
+  const sheet = document.getElementById('mgSheet');
+  const payoutMult = kind === 'beg' ? 0.4 : 1;
+  const titleMap = {beg:'Beg on the street corner', service:'Community service'};
+  if(game === 'tap'){
+    sheet.innerHTML = `
+      <div class="sheet-handle"></div>
+      <div class="mg-title">${titleMap[kind]}</div>
+      <div class="mg-sub">Stop the marker in the green zone</div>
+      <div class="track" id="mgTrack">
+        <div class="zone" style="left:42%; width:16%;"></div>
+        <div class="marker" id="mgMarker"></div>
+      </div>
+      <button class="btn btn-primary btn-block" id="mgStop">Stop</button>
+      <div class="mg-result" id="mgResult"></div>`;
+    document.getElementById('mgOverlay').classList.add('show');
+    let pos=0, dir=1, running=true;
+    const marker = document.getElementById('mgMarker');
+    function frame(){
+      if(!running) return;
+      pos += dir*2.2;
+      if(pos>=100){pos=100;dir=-1;}
+      if(pos<=0){pos=0;dir=1;}
+      marker.style.left = pos+'%';
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    document.getElementById('mgStop').onclick = ()=>{
+      if(!running) return;
+      running = false;
+      const inZone = pos>=42 && pos<=58;
+      const dist = Math.abs(pos-50);
+      const base = inZone ? Math.round(140 - dist*8) : Math.round(35);
+      finishMinigame(Math.round(base*payoutMult));
+    };
+  } else {
+    sheet.innerHTML = `
+      <div class="sheet-handle"></div>
+      <div class="mg-title">${titleMap[kind]}</div>
+      <div class="mg-sub">Tap the raccoons before they run</div>
+      <div class="grid3" id="mgGrid"></div>
+      <button class="btn btn-primary btn-block" id="mgStart">Start</button>
+      <div class="mg-result" id="mgResult"></div>`;
+    document.getElementById('mgOverlay').classList.add('show');
+    const grid = document.getElementById('mgGrid');
+    const cells = [];
+    for(let i=0;i<9;i++){
+      const c = document.createElement('div');
+      c.className='cell';
+      grid.appendChild(c);
+      cells.push(c);
+    }
+    let hits=0, spawns=0, maxSpawns=6, active=-1, over=true, spawnT=null, chainT=null, timeT=null, timeLeft=8;
+    function clearAll(){clearTimeout(spawnT);clearTimeout(chainT);clearInterval(timeT);}
+    function clearCell(i){cells[i].innerHTML='';cells[i].style.background='var(--surface2)';}
+    function spawn(){
+      if(over||spawns>=maxSpawns) return;
+      spawns++;
+      const idx = Math.floor(Math.random()*9);
+      active = idx;
+      cells[idx].style.background = 'var(--cash-dim)';
+      cells[idx].innerHTML = '🦝';
+      spawnT = setTimeout(()=>{
+        if(over) return;
+        if(active===idx) clearCell(idx);
+        active=-1;
+        if(spawns<maxSpawns) chainT=setTimeout(spawn,280);
+      }, 700);
+    }
+    cells.forEach((c,idx)=>{
+      c.onclick = ()=>{
+        if(over||idx!==active) return;
+        hits++; clearCell(idx); active=-1; clearTimeout(spawnT);
+        if(spawns<maxSpawns) chainT=setTimeout(spawn,180);
+      };
+    });
+    document.getElementById('mgStart').onclick = (e)=>{
+      clearAll();
+      hits=0; spawns=0; timeLeft=8; over=false;
+      cells.forEach((c,i)=>clearCell(i));
+      e.target.disabled = true;
+      spawn();
+      timeT = setInterval(()=>{
+        timeLeft--;
+        if(timeLeft<=0){
+          over=true; clearAll();
+          cells.forEach((c,i)=>clearCell(i));
+          const base = Math.round(20 + hits*30);
+          finishMinigame(Math.round(base*payoutMult));
+        }
+      },1000);
+    };
+  }
+}
+
+function finishMinigame(payout){
+  state.cash += payout;
+  addLog(`Recovery payout (${recoverySession})`, '+'+fmt(payout), 'var(--cash)');
+  saveState();
+  render();
+  const resultEl = document.getElementById('mgResult');
+  if(resultEl){
+    resultEl.innerHTML = `<div class="mg-payout">+${fmt(payout)}</div><p style="font-size:12px; color:var(--text-dim); margin-top:4px;">Back to trading.</p>`;
+  }
+  setTimeout(()=>{ closeOverlay('mgOverlay'); }, 1400);
+}
+
+/* ---------- nav / toast ---------- */
+function switchView(name){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+name).classList.add('active');
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active', b.dataset.view===name));
+}
+let toastT = null;
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+/* ---------- boot ---------- */
+loadState();
+renderTicker();
+render();
+tickHandle = setInterval(tickPrices, 2500);
+</script>
+</body>
+</html>

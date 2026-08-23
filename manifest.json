@@ -1,0 +1,11 @@
+{
+  "name": "Degenerate Capital",
+  "short_name": "DegCap",
+  "description": "Fantasy trading and betting game with fake currency",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#121316",
+  "theme_color": "#121316",
+  "orientation": "portrait",
+  "icons": []
+}
