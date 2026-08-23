@@ -121,6 +121,23 @@ h2:first-child{margin-top:0;}
 #toast{position:fixed; top:44px; left:50%; transform:translateX(-50%); background:var(--surface3); border:1px solid var(--border-strong); border-radius:10px; padding:10px 16px; font-size:13px; z-index:80; opacity:0; transition:opacity .25s; pointer-events:none; max-width:90%; text-align:center;}
 #toast.show{opacity:1;}
 
+/* ===== Explainer card (inline, non-blocking tier-unlock tutorial) ===== */
+.explainer-card{background:var(--surface2); border:1px solid var(--border); border-left:3px solid var(--cash); border-radius:12px; padding:12px 14px; margin-bottom:10px;}
+.explainer-card .ex-head{display:flex; align-items:center; gap:8px; margin-bottom:4px;}
+.explainer-card .ex-icon{font-size:16px;}
+.explainer-card .ex-title{font-size:13px; font-weight:600;}
+.explainer-card .ex-body{font-size:12px; color:var(--text-dim); line-height:1.4; margin:4px 0 8px;}
+.explainer-card .ex-dismiss{font-size:11px; color:var(--cash); font-weight:600;}
+
+/* ===== Tutorial sheet ===== */
+#tutorialOverlay .sheet{position:relative;}
+.tut-skip{position:absolute; top:18px; right:18px; font-size:12px; color:var(--text-faint);}
+.tut-title{font-size:17px; font-weight:600; margin-bottom:8px;}
+.tut-text{font-size:13px; color:var(--text-dim); line-height:1.5;}
+.tut-dots{display:flex; justify-content:center; gap:6px; margin:16px 0 16px;}
+.tut-dots span{width:6px; height:6px; border-radius:50%; background:var(--surface3);}
+.tut-dots span.active{background:var(--cash);}
+
 .empty{font-size:12px; color:var(--text-faint); text-align:center; padding:24px 0;}
 .tag{font-size:10px; padding:2px 7px; border-radius:20px; font-weight:600;}
 .tag-safe{background:var(--up-dim); color:var(--up);}
@@ -227,6 +244,17 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
   <div class="sheet" id="mgSheet"></div>
 </div>
 
+<!-- Tutorial sheet -->
+<div class="overlay" id="tutorialOverlay">
+  <div class="sheet">
+    <span class="tut-skip" onclick="tutorialSkip()">Skip</span>
+    <div class="sheet-handle"></div>
+    <div id="tutorialBody"></div>
+    <div class="tut-dots" id="tutorialDots"></div>
+    <button class="btn btn-primary btn-block" id="tutorialCta" onclick="tutorialNext()">Next</button>
+  </div>
+</div>
+
 <script>
 /* ========================================================================
    DEGENERATE CAPITAL — client-only proof of concept
@@ -279,6 +307,21 @@ const SAFE_DEFS = [
   {id:'bond', name:'Treasury Bond', sub:'Boring on purpose', type:'safe', price:50, vol:0.0008, drift:0.0001, icon:'T', color:'var(--up)'},
 ];
 
+const TUTORIAL_STEPS = [
+  {title:'Welcome to Degenerate Capital', body:"You've got $1,000 and zero impulse control. Let's fix that.", cta:'Next'},
+  {title:'Net worth is everything', body:"Cash plus whatever you're holding, minus any debt. Watch it in the header — that number is the whole game.", cta:'Next'},
+  {title:'Markets tab', body:"Tap Markets below to see what's tradeable. You start with stocks — crypto, predictions, and forex unlock as your net worth climbs.", cta:'Next'},
+  {title:'Making a trade', body:'Tap any unlocked asset, enter an amount (or use 25% / 50% / Max), then Buy. Sell the same way when you\'re ready to cash out.', cta:"Let's trade"},
+];
+
+// Non-blocking, inline explainer shown once next to a tier's first asset the
+// moment it unlocks — never a modal, per the "no interstitials on unlock" rule.
+const TIER_EXPLAINERS = {
+  crypto: {icon:'🎢', title:'Crypto unlocked', body:'Meme-driven, high volatility. Prices can double or crater in a single tick — treat it like a slot machine, not a savings account.'},
+  prediction: {icon:'⚡', title:'Prediction markets unlocked', body:'Fast-resolving bets on real-world-ish outcomes. Price is just implied odds in cents — buy in if you think it\'s mispriced.'},
+  forex: {icon:'💱', title:'Forex desk unlocked', body:'Currency pairs. Slower and steadier than crypto — a different flavor of degenerate.'},
+};
+
 const HEADLINE_POOL = [
   "Analysts baffled by literally everything",
   "Local trader discovers stop-loss orders exist",
@@ -313,6 +356,8 @@ function defaultState(){
     cryptoLaunchQueue: [],
     firstPlayAt: Date.now(),
     onboardingBoostEligible: true,
+    tutorialSeen: false,
+    explainersSeen: [],
   };
 }
 
@@ -345,6 +390,13 @@ function loadState(){
   if(state.firstPlayAt === undefined){
     state.firstPlayAt = 0;
     state.onboardingBoostEligible = false;
+  }
+  // Returning players from before the tutorial existed already know how to
+  // play — don't surprise them with it, and don't re-explain tiers they've
+  // already got unlocked.
+  if(state.tutorialSeen === undefined) state.tutorialSeen = true;
+  if(state.explainersSeen === undefined){
+    state.explainersSeen = state.unlockedTiersSeen.filter(id=>id!=='stocks');
   }
 }
 
@@ -516,11 +568,24 @@ function renderMarkets(){
   risky.innerHTML = '';
   safe.innerHTML = '';
 
+  let lastTier = null;
   ASSET_DEFS.forEach(a=>{
     const isLocked = !unlocked.includes(a.tier);
     const price = state.prices[a.id];
     const chg = priceChangePct(a);
     const tierInfo = TIERS.find(t=>t.id===a.tier);
+    if(a.tier !== lastTier){
+      lastTier = a.tier;
+      const ex = TIER_EXPLAINERS[a.tier];
+      if(ex && unlocked.includes(a.tier) && !state.explainersSeen.includes(a.tier)){
+        risky.innerHTML += `
+          <div class="explainer-card">
+            <div class="ex-head"><span class="ex-icon">${ex.icon}</span><span class="ex-title">${ex.title}</span></div>
+            <p class="ex-body">${ex.body}</p>
+            <button class="ex-dismiss" onclick="dismissExplainer('${a.tier}')">Got it</button>
+          </div>`;
+      }
+    }
     risky.innerHTML += `
       <div class="asset ${isLocked?'locked':''}" ${isLocked?'':`onclick="openTrade('${a.id}')"`}>
         <div class="asset-left">
@@ -555,6 +620,12 @@ function renderMarkets(){
         </div>
       </div>`;
   });
+}
+
+function dismissExplainer(tierId){
+  if(!state.explainersSeen.includes(tierId)) state.explainersSeen.push(tierId);
+  saveState();
+  render();
 }
 
 function renderHoldings(){
@@ -793,6 +864,36 @@ function finishMinigame(payout){
   setTimeout(()=>{ closeOverlay('mgOverlay'); }, 1400);
 }
 
+/* ---------- tutorial ---------- */
+let tutorialStep = 0;
+function maybeStartTutorial(){
+  if(state.tutorialSeen) return;
+  tutorialStep = 0;
+  renderTutorialStep();
+  document.getElementById('tutorialOverlay').classList.add('show');
+}
+function renderTutorialStep(){
+  const step = TUTORIAL_STEPS[tutorialStep];
+  document.getElementById('tutorialBody').innerHTML = `<div class="tut-title">${step.title}</div><p class="tut-text">${step.body}</p>`;
+  document.getElementById('tutorialDots').innerHTML = TUTORIAL_STEPS.map((_,i)=>`<span class="${i===tutorialStep?'active':''}"></span>`).join('');
+  document.getElementById('tutorialCta').textContent = step.cta;
+}
+function tutorialNext(){
+  if(tutorialStep >= TUTORIAL_STEPS.length-1){ tutorialFinish(true); return; }
+  tutorialStep++;
+  renderTutorialStep();
+}
+function tutorialSkip(){ tutorialFinish(false); }
+function tutorialFinish(completed){
+  state.tutorialSeen = true;
+  saveState();
+  closeOverlay('tutorialOverlay');
+  if(completed){
+    switchView('markets');
+    showToast('Tip: buy any stock to get the ball rolling.');
+  }
+}
+
 /* ---------- nav / toast ---------- */
 function switchView(name){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
@@ -812,6 +913,7 @@ function showToast(msg){
 loadState();
 renderTicker();
 render();
+maybeStartTutorial();
 tickHandle = setInterval(tickPrices, TICK_MS);
 </script>
 </body>
