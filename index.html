@@ -138,6 +138,9 @@ h2:first-child{margin-top:0;}
 .tut-dots span{width:6px; height:6px; border-radius:50%; background:var(--surface3);}
 .tut-dots span.active{background:var(--cash);}
 
+/* ===== Crash popup ===== */
+.crash-icon{font-size:30px; text-align:center; margin-bottom:8px;}
+
 .empty{font-size:12px; color:var(--text-faint); text-align:center; padding:24px 0;}
 .tag{font-size:10px; padding:2px 7px; border-radius:20px; font-weight:600;}
 .tag-safe{background:var(--up-dim); color:var(--up);}
@@ -255,6 +258,17 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
   </div>
 </div>
 
+<!-- Crash explainer popup -->
+<div class="overlay" id="crashOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="crash-icon">💥</div>
+    <div class="tut-title" style="text-align:center;">Everything just crashed</div>
+    <p class="tut-text" style="text-align:center;">This happens. Markets crash hard and fast — no warnings, no stop-losses. If your cash and holdings both bottom out, you'll get real comeback options: begging, community service, or a loan shark bailout. Nothing here is permanent — not even broke.</p>
+    <button class="btn btn-primary btn-block" style="margin-top:16px;" onclick="closeOverlay('crashOverlay')">Ride it out</button>
+  </div>
+</div>
+
 <script>
 /* ========================================================================
    DEGENERATE CAPITAL — client-only proof of concept
@@ -273,16 +287,21 @@ const TIERS = [
 ];
 
 const CRYPTO_LAUNCH_ASSET = 'doge';
-// Third step is a market-wide crash (not just DOGO) so a brand-new player's
-// first tier unlock also teaches the broke/recovery loop early. Safe havens
-// are deliberately spared — their whole purpose is to be the thing that
-// doesn't crash, per DESIGN_NOTES. Whether this actually trips checkBroke()
-// depends on how much cash the player still has in reserve — real
-// consequence, not a forced modal.
+// Steps 3-5 are a market-wide crash (not just DOGO), spread across three
+// ticks instead of one instant drop so it reads as a crash unfolding rather
+// than a single jump-cut. The final beat also zeroes cash (wipeCash) and
+// drops holdings to near-nothing, so this deliberately DOES guarantee
+// checkBroke() fires — onboarding is meant to walk the player through the
+// recovery loop, not just show a scary number. The one out: safe havens are
+// still spared, since staying crash-proof is their whole purpose per
+// DESIGN_NOTES — a player who'd already parked cash there won't go broke,
+// which is correct/intended, not a bug.
 const CRYPTO_LAUNCH_SEQUENCE = [
   {mult:2.4, headline:'DOGO ignites on launch day, up huge out of the gate', dir:'up'},
   {mult:0.5, headline:'DOGO craters as early buyers cash out', dir:'down'},
-  {marketCrash:true, mult:0.03, headline:'Contagion spreads — the whole board is bleeding out', dir:'down'},
+  {marketCrash:true, mult:0.31, headline:'Contagion spreads — panic selling hits the whole board', dir:'down'},
+  {marketCrash:true, mult:0.31, headline:"Circuit breakers trip, but the bleeding doesn't stop", dir:'down'},
+  {marketCrash:true, mult:0.02, wipeCash:true, headline:'Margin calls hit — cash and positions both wiped out', dir:'down'},
 ];
 
 const TICK_MS = 1250;
@@ -290,8 +309,9 @@ const TICK_MS = 1250;
 // crypto unlock around this mark, so the goal/loop is obvious fast. Recomputed
 // every tick from the current shortfall, so it self-corrects regardless of
 // which asset(s) they hold, when they buy, or how a bad random tick lands.
-// Halved (was 5min) so the onboarding ramp into the first crash lesson moves twice as fast.
-const ONBOARDING_TARGET_MS = 2.5 * 60 * 1000;
+// Trimmed after playtest (was 5min, then 2.5min) — a 1min ramp keeps the
+// crash lesson from dragging.
+const ONBOARDING_TARGET_MS = 1 * 60 * 1000;
 const ONBOARDING_MIN_TICKS = 10; // floor so a late buy never reads as one obvious jump
 const RETIRE_TIERS = [
   {label:'Comfortable', amt:10000},
@@ -366,6 +386,8 @@ function defaultState(){
     onboardingBoostEligible: true,
     tutorialSeen: false,
     explainersSeen: [],
+    crashPopupShown: false,
+    forceBrokeNext: false,
   };
 }
 
@@ -406,6 +428,10 @@ function loadState(){
   if(state.explainersSeen === undefined){
     state.explainersSeen = state.unlockedTiersSeen.filter(id=>id!=='stocks');
   }
+  // If the crypto launch already fully played on old saves, don't replay the
+  // crash popup retroactively; if it hasn't started yet, false is correct
+  // and it'll show right when the crash actually hits.
+  if(state.crashPopupShown === undefined) state.crashPopupShown = state.cryptoLaunchPlayed;
 }
 
 function saveState(){ localStorage.setItem(SAVE_KEY, JSON.stringify(state)); }
@@ -468,7 +494,15 @@ function applyCryptoLaunchStep(){
   if(!state.cryptoLaunchQueue || !state.cryptoLaunchQueue.length) return null;
   const step = state.cryptoLaunchQueue.shift();
   if(step.marketCrash){
+    if(!state.crashPopupShown){
+      state.crashPopupShown = true;
+      document.getElementById('crashOverlay').classList.add('show');
+    }
     ASSET_DEFS.forEach(a=>{ state.prices[a.id] = Math.max(0.01, state.prices[a.id] * step.mult); });
+    if(step.wipeCash){
+      state.cash = 0;
+      state.forceBrokeNext = true;
+    }
     pushHeadline(step.headline, step.dir);
     return 'ALL';
   }
@@ -746,6 +780,15 @@ function doTrade(dir){
 
 /* ---------- broke / recovery flow ---------- */
 function checkBroke(){
+  if(state.forceBrokeNext){
+    // The scripted crash's final beat wants this to land for sure — don't
+    // leave it to the normal threshold, since residual value from whatever
+    // the player happened to be holding (or bought mid-crash) can otherwise
+    // dodge the $5 sellable cutoff.
+    state.forceBrokeNext = false;
+    document.getElementById('brokeOverlay').classList.add('show');
+    return;
+  }
   if(state.cash > 1) return;
   const sellable = allAssets().reduce((sum,a)=> sum + (state.holdings[a.id]||0)*state.prices[a.id], 0);
   if(sellable > 5) return;
