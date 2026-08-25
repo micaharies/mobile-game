@@ -157,11 +157,63 @@ h2:first-child{margin-top:0;}
 .tag-risk{background:var(--down-dim); color:var(--down);}
 footer.reset-row{padding:24px 16px 8px; text-align:center;}
 footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration:underline;}
+
+/* ===== RETENTION_SPEC.md additions ===== */
+
+/* --- 1. Offline recap --- */
+.recap-stat{font-family:var(--font-mono); font-size:30px; font-weight:700; margin-bottom:4px;}
+.recap-sub{font-size:12px; color:var(--text-dim); margin-bottom:12px;}
+.recap-mover{font-size:12px; color:var(--text-faint);}
+
+/* --- 2. Live market events + hot asset + prediction resolve --- */
+.live-event-banner{position:fixed; top:38px; left:50%; transform:translateX(-50%) translateY(-8px); width:calc(100% - 24px); max-width:456px; background:var(--surface1); border:1px solid var(--cash-dim); border-left:3px solid var(--cash); border-radius:12px; padding:12px 14px; z-index:45; opacity:0; pointer-events:none; transition:opacity .25s, transform .25s;}
+.live-event-banner.show{opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto;}
+.lev-headline{font-size:12.5px; font-weight:600; margin-bottom:8px;}
+.lev-row{display:flex; gap:6px; margin-bottom:6px;}
+.lev-row .lev-btn{flex:1; padding:7px 0; font-size:11.5px; border:1px solid var(--border); border-radius:7px; background:var(--surface2); color:var(--text);}
+.lev-row .lev-ignore{color:var(--text-faint);}
+.lev-timer{font-size:10px; color:var(--text-faint); font-family:var(--font-mono); text-align:right;}
+
+.asset.hot{border-color:var(--cash); box-shadow:0 0 0 1px var(--cash), 0 0 12px color-mix(in srgb, var(--cash) 45%, transparent);}
+.hot-badge{font-size:9px; color:var(--cash); font-weight:700; margin-left:2px;}
+
+/* --- 3. Micro-goals and streaks --- */
+.streak-badge{display:none; margin-top:6px; font-size:11px; font-family:var(--font-mono); color:var(--cash); background:var(--surface2); border:1px solid var(--cash-dim); border-radius:20px; padding:3px 10px; width:fit-content;}
+.challenge{display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--surface1); border:1px solid var(--border); border-radius:12px; padding:10px 14px; margin-bottom:8px;}
+.challenge.done{opacity:.55;}
+.challenge-label{font-size:13px;}
+.challenge-progress{font-size:11px; font-family:var(--font-mono); color:var(--text-faint); white-space:nowrap;}
+
+/* --- 4. Juice --- */
+@keyframes flashUp{ from{background:color-mix(in srgb, var(--up) 35%, var(--surface1));} to{background:var(--surface1);} }
+@keyframes flashDown{ from{background:color-mix(in srgb, var(--down) 35%, var(--surface1));} to{background:var(--surface1);} }
+.asset.flash-up{animation:flashUp .5s ease-out;}
+.asset.flash-down{animation:flashDown .5s ease-out;}
+#tradeOverlay .sheet{position:relative;}
+.trade-confirm{position:absolute; inset:0; display:none; align-items:center; justify-content:center; font-size:56px; color:var(--up); background:color-mix(in srgb, var(--surface1) 88%, transparent); border-radius:18px; z-index:5;}
+.trade-confirm.show{display:flex; animation:tradeConfirmPop .45s ease-out;}
+@keyframes tradeConfirmPop{ 0%{opacity:0; transform:scale(.6);} 40%{opacity:1; transform:scale(1.08);} 100%{opacity:1; transform:scale(1);} }
+@keyframes payoutPop{ 0%{opacity:0; transform:scale(.5);} 60%{opacity:1; transform:scale(1.15);} 100%{opacity:1; transform:scale(1);} }
+.mg-payout{animation:payoutPop .4s ease-out;}
+
+/* --- 5. Debug mode --- */
+#debugRow{display:none;}
+#debugRow button{font-size:11px; color:var(--text-faint); text-decoration:underline;}
 </style>
 </head>
 <body>
 
 <div id="ticker-wrap"><div id="ticker"></div></div>
+
+<div class="live-event-banner" id="liveEventBanner">
+  <div class="lev-headline" id="levHeadline"></div>
+  <div class="lev-row">
+    <button class="lev-btn" onclick="liveEventChoice('buy')">Buy now</button>
+    <button class="lev-btn" onclick="liveEventChoice('wait')">Wait</button>
+    <button class="lev-btn lev-ignore" onclick="liveEventChoice('ignore')">Ignore</button>
+  </div>
+  <div class="lev-timer" id="levTimer"></div>
+</div>
 
 <header>
   <div class="networth-row">
@@ -176,10 +228,13 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
     <div>Cash: <b id="cashVal">$0</b></div>
     <div class="debt-tag" id="debtRow" style="display:none;">Debt: <b id="debtVal">$0</b></div>
   </div>
+  <div class="streak-badge" id="streakBadge"></div>
 </header>
 
 <main>
   <div class="view active" id="view-portfolio">
+    <h2>Challenges</h2>
+    <div id="challengesList"></div>
     <h2>Holdings</h2>
     <div id="holdingsList"></div>
     <h2>Retirement progress</h2>
@@ -197,6 +252,7 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
     <h2>Recent activity</h2>
     <div id="logList"></div>
     <footer class="reset-row"><button onclick="replayTutorial()">Replay tutorial</button> · <button onclick="resetGame()">Reset save data</button></footer>
+    <div id="debugRow"><button onclick="debugSimulateOffline()">Debug: simulate 1hr offline</button></div>
   </div>
 </main>
 
@@ -230,6 +286,7 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
       <button class="btn btn-block" onclick="doTrade('sell')">Sell</button>
       <button class="btn btn-primary btn-block" onclick="doTrade('buy')">Buy</button>
     </div>
+    <div class="trade-confirm" id="tradeConfirm">✓</div>
   </div>
 </div>
 
@@ -278,6 +335,28 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
     <div class="tut-title" style="text-align:center;">Everything just crashed</div>
     <p class="tut-text" style="text-align:center;">This happens. Markets crash hard and fast — no warnings, no stop-losses. If your cash and holdings both bottom out, you'll get real comeback options: begging, community service, or a loan shark bailout. Nothing here is permanent — not even broke.</p>
     <button class="btn btn-primary btn-block" style="margin-top:16px;" onclick="closeOverlay('crashOverlay')">Ride it out</button>
+  </div>
+</div>
+
+<!-- Tutorial complete popup -->
+<div class="overlay" id="tutorialCompleteOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="crash-icon">🎉</div>
+    <div class="tut-title" style="text-align:center;">Wow, the market recovered</div>
+    <p class="tut-text" style="text-align:center;">Cash reset to $1,000 — clean slate. You just lived the whole loop: buy, crash, panic, recover. You're ready to start trading for real.</p>
+    <button class="btn btn-primary btn-block" style="margin-top:16px;" onclick="closeOverlay('tutorialCompleteOverlay')">Let's trade</button>
+  </div>
+</div>
+
+<!-- Offline recap popup -->
+<div class="overlay" id="recapOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="crash-icon" id="recapIcon">📊</div>
+    <div class="tut-title" style="text-align:center;">While you were away</div>
+    <div id="recapBody" style="text-align:center;"></div>
+    <button class="btn btn-primary btn-block" style="margin-top:16px;" onclick="closeRecap()">Continue</button>
   </div>
 </div>
 
@@ -332,6 +411,19 @@ const RETIRE_TIERS = [
   {label:'Retired', amt:50000},
   {label:'Legend', amt:250000},
 ];
+
+// --- RETENTION_SPEC.md tuning constants ---
+const OFFLINE_RECAP_THRESHOLD_MS = 60 * 1000; // shorter absences aren't worth interrupting for
+const OFFLINE_RECAP_MAX_TICKS = 500; // full-fidelity tick cap; anything beyond this uses a one-shot approximation
+const LIVE_EVENT_WINDOW_S = 45;
+const LIVE_EVENT_MIN_GAP_MS = 2 * 60 * 1000;
+const LIVE_EVENT_MAX_GAP_MS = 4 * 60 * 1000;
+const HOT_ASSET_DURATION_MS = 90 * 1000;
+const HOT_VOL_MULT = 2.5;
+const HOT_ASSET_MIN_GAP_MS = 2.5 * 60 * 1000;
+const HOT_ASSET_MAX_GAP_MS = 4 * 60 * 1000;
+const PREDICTION_RESOLVE_MIN_S = 60;
+const PREDICTION_RESOLVE_MAX_S = 90;
 
 const ASSET_DEFS = [
   {id:'aapl', name:'AAPL', sub:'Big tech stock', tier:'stocks', type:'stock', price:180, vol:0.006, drift:0.0001, icon:'A', color:'var(--safe)'},
@@ -389,17 +481,14 @@ const TUTORIAL_STEPS = [
     advance:'button' },
   { id:'tiers', target:()=>document.querySelector('#riskyList .asset.locked'), skipIfNoTarget:true,
     title:'Riskier markets unlock as you grow',
-    body:'Crypto, predictions, and forex all unlock once your net worth crosses their threshold. Grind the boring stuff, unlock the fun stuff.',
-    advance:'button' },
-  { id:'broke', target:()=>null,
-    title:'What happens if you go broke',
-    body:"Run out of cash with nothing left to sell, and you'll get three ways back in: beg (fast, low payout), community service (a quick minigame, better payout), or a loan shark (instant cash, but it'll cost you in interest later). Nobody's coming to bail you out — that part's on you.",
-    advance:'button' },
-  { id:'done', target:()=>null,
-    title:"That's the loop",
-    body:'Buy low, panic, sell high, panic differently. Go make some questionable decisions.',
+    body:'Crypto, predictions, and forex all unlock once your net worth crosses their threshold. Grind the boring stuff, unlock the fun stuff. Keep playing — the walkthrough picks back up once things go sideways.',
     advance:'button' },
 ];
+// The old "what happens if you go broke" / "that's the loop" narration steps
+// are gone on purpose — the real crash popup (#crashOverlay, shown from
+// applyCryptoLaunchStep) now covers that ground live, and the tutorial's
+// actual completion is tied to the real recovery finishing (see
+// finishSpotlightTour / completeTutorial below), not a scripted button tap.
 
 // Non-blocking, inline explainer shown once next to a tier's first asset the
 // moment it unlocks — never a modal, per the "no interstitials on unlock" rule.
@@ -436,6 +525,7 @@ let state = null;
 let tickHandle = null;
 let currentTradeAsset = null;
 let recoverySession = null;
+let suppressBrokeCheck = false;
 
 function defaultState(){
   const holdings = {};
@@ -459,9 +549,20 @@ function defaultState(){
     firstPlayAt: Date.now(),
     onboardingBoostEligible: true,
     tutorialComplete: false,
+    tutorialAwaitingRecovery: false,
     explainersSeen: [],
     crashPopupShown: false,
     forceBrokeNext: false,
+    // --- RETENTION_SPEC.md additions below ---
+    lastSeenAt: Date.now(),
+    costBasis: {},
+    winStreak: 0,
+    activeChallenges: [],
+    challengeTradedTiers: [],
+    predictionResolveAt: {},
+    hotAssetId: null,
+    hotAssetUntil: 0,
+    debugMode: false,
   };
 }
 
@@ -478,6 +579,8 @@ function loadState(){
     if(state.prices[a.id] === undefined) state.prices[a.id] = a.price;
     if(state.startPrices[a.id] === undefined) state.startPrices[a.id] = a.price;
     if(state.holdings[a.id] === undefined) state.holdings[a.id] = 0;
+    if(!state.costBasis) state.costBasis = {};
+    if(state.costBasis[a.id] === undefined) state.costBasis[a.id] = 0;
   });
   // Backfill for saves from before scripted unlock events existed, so returning
   // players don't retroactively get a "surprise" pump/fanfare for tiers they
@@ -504,6 +607,7 @@ function loadState(){
   // play — don't surprise them with it, and don't re-explain tiers they've
   // already got unlocked.
   if(state.tutorialComplete === undefined) state.tutorialComplete = true;
+  if(state.tutorialAwaitingRecovery === undefined) state.tutorialAwaitingRecovery = false;
   if(state.explainersSeen === undefined){
     state.explainersSeen = state.unlockedTiersSeen.filter(id=>id!=='stocks');
   }
@@ -511,9 +615,22 @@ function loadState(){
   // crash popup retroactively; if it hasn't started yet, false is correct
   // and it'll show right when the crash actually hits.
   if(state.crashPopupShown === undefined) state.crashPopupShown = state.cryptoLaunchPlayed;
+  // RETENTION_SPEC.md fields — undefined on any pre-existing save.
+  if(state.lastSeenAt === undefined) state.lastSeenAt = Date.now(); // no recap on the load that introduces this field
+  if(state.winStreak === undefined) state.winStreak = 0;
+  if(state.activeChallenges === undefined) state.activeChallenges = [];
+  if(state.challengeTradedTiers === undefined) state.challengeTradedTiers = [];
+  if(state.predictionResolveAt === undefined) state.predictionResolveAt = {};
+  ASSET_DEFS.filter(a=>a.type==='prediction').forEach(a=>{
+    if(state.predictionResolveAt[a.id] === undefined){
+      state.predictionResolveAt[a.id] = Date.now() + randBetween(PREDICTION_RESOLVE_MIN_S, PREDICTION_RESOLVE_MAX_S)*1000;
+    }
+  });
+  if(state.hotAssetId === undefined){ state.hotAssetId = null; state.hotAssetUntil = 0; }
+  if(state.debugMode === undefined) state.debugMode = false;
 }
 
-function saveState(){ localStorage.setItem(SAVE_KEY, JSON.stringify(state)); }
+function saveState(){ state.lastSeenAt = Date.now(); localStorage.setItem(SAVE_KEY, JSON.stringify(state)); }
 
 function resetGame(){
   if(!confirm('Wipe your save and start over?')) return;
@@ -530,11 +647,20 @@ function tickPrices(){
   if((state.cryptoLaunchQueue && state.cryptoLaunchQueue.length) || state.crashTicksLeft > 0){
     scriptedAssetThisTick = applyCryptoLaunchStep();
   }
+  if(liveEvent){
+    // The live event owns this asset's price for the duration of its window —
+    // spread across ticks the same nth-root way the scripted crash is.
+    state.prices[liveEvent.assetId] = Math.max(0.01, state.prices[liveEvent.assetId] * liveEvent.perTickMult);
+    liveEvent.remainingTicks--;
+    if(liveEvent.remainingTicks <= 0) resolveLiveEvent();
+  }
   allAssets().forEach(a=>{
     if(scriptedAssetThisTick === 'ALL' && a.type !== 'safe') return; // crash step owns this tick for every risky asset
     if(a.id === scriptedAssetThisTick) return; // scripted event owns this tick's move
-    const shock = (Math.random() < a.vol * 0.15) ? (Math.random()<0.5?-1:1) * a.vol * 6 : 0;
-    const change = a.drift + (Math.random()*2-1) * a.vol + shock;
+    if(liveEvent && a.id === liveEvent.assetId) return; // live event owns this tick's move
+    const effVol = (a.id === state.hotAssetId) ? a.vol * HOT_VOL_MULT : a.vol;
+    const shock = (Math.random() < effVol * 0.15) ? (Math.random()<0.5?-1:1) * effVol * 6 : 0;
+    const change = a.drift + (Math.random()*2-1) * effVol + shock;
     let p = state.prices[a.id] * (1 + change);
     if(a.type === 'prediction') p = Math.min(0.97, Math.max(0.03, p));
     else p = Math.max(0.01, p);
@@ -548,6 +674,9 @@ function tickPrices(){
   }
   applyOnboardingBoost();
   accrueDebt();
+  resolveDuePredictions();
+  maybeRotateHotAsset();
+  maybeTriggerLiveEvent();
   saveState();
   render();
 }
@@ -621,6 +750,7 @@ function checkTierUnlocks(){
         pushHeadline(t.line, null);
       }
       if(t.id === 'crypto') triggerCryptoLaunch();
+      if(t.unlockAt > 0) progressChallenge('tierUnlock');
     }
   });
 }
@@ -630,6 +760,358 @@ function accrueDebt(){
     state.debt = state.debt * (1 + state.debtRate/12000); // slow drip so it's visible over a session
   }
 }
+
+/* ==========================================================================
+   RETENTION_SPEC.md — systems 1-5
+   ========================================================================== */
+
+/* ---------- 1. Offline recap ---------- */
+// Runs once at boot, before the first render. Fast-forwards the SAME random-
+// walk math tickPrices() uses, silently (no toasts/headlines/popups) up to
+// OFFLINE_RECAP_MAX_TICKS at full fidelity; anything beyond that is
+// approximated in one shot (drift scales linearly, volatility scales with
+// sqrt(N) since variance is additive across independent steps in a random
+// walk) rather than iterating potentially tens of thousands more times.
+// Deliberately does NOT replay the scripted crypto-launch queue or a live
+// event in progress — those are meant to be watched live, not fast-forwarded
+// through; they simply resume on the next real tick once the tab is active.
+function runOfflineRecap(){
+  if(!state.lastSeenAt) return null;
+  const elapsedMs = Date.now() - state.lastSeenAt;
+  if(elapsedMs < OFFLINE_RECAP_THRESHOLD_MS) return null;
+
+  const nwBefore = netWorth();
+  const pricesBefore = {};
+  allAssets().forEach(a=>{ pricesBefore[a.id] = state.prices[a.id]; });
+
+  const ticksElapsed = Math.floor(elapsedMs / TICK_MS);
+  const simTicks = Math.min(ticksElapsed, OFFLINE_RECAP_MAX_TICKS);
+
+  for(let i=0; i<simTicks; i++){
+    allAssets().forEach(a=>{
+      const shock = (Math.random() < a.vol * 0.15) ? (Math.random()<0.5?-1:1) * a.vol * 6 : 0;
+      const change = a.drift + (Math.random()*2-1) * a.vol + shock;
+      let p = state.prices[a.id] * (1 + change);
+      if(a.type === 'prediction') p = Math.min(0.97, Math.max(0.03, p));
+      else p = Math.max(0.01, p);
+      state.prices[a.id] = p;
+    });
+    if(state.debt > 0) state.debt = state.debt * (1 + state.debtRate/12000);
+  }
+  const remainingTicks = ticksElapsed - simTicks;
+  if(remainingTicks > 0){
+    allAssets().forEach(a=>{
+      const drift = a.drift * remainingTicks;
+      const vol = a.vol * Math.sqrt(remainingTicks);
+      const change = drift + (Math.random()*2-1) * vol;
+      let p = state.prices[a.id] * (1 + change);
+      if(a.type === 'prediction') p = Math.min(0.97, Math.max(0.03, p));
+      else p = Math.max(0.01, p);
+      state.prices[a.id] = p;
+    });
+    if(state.debt > 0) state.debt = state.debt * Math.pow(1 + state.debtRate/12000, remainingTicks);
+  }
+
+  const nwAfter = netWorth();
+  let biggestMover = null, biggestPct = 0;
+  allAssets().forEach(a=>{
+    const before = pricesBefore[a.id];
+    const pct = ((state.prices[a.id]-before)/before)*100;
+    if(Math.abs(pct) > Math.abs(biggestPct)){ biggestPct = pct; biggestMover = a; }
+  });
+
+  saveState();
+  return {nwBefore, nwAfter, biggestMover, biggestPct, elapsedMs};
+}
+
+function showRecap(recap){
+  const nwDelta = recap.nwAfter - recap.nwBefore;
+  const deltaColor = nwDelta >= 0 ? 'var(--up)' : 'var(--down)';
+  const moverLine = recap.biggestMover
+    ? `<div class="recap-mover">Biggest mover: ${recap.biggestMover.name} ${recap.biggestPct>=0?'up':'down'} ${Math.abs(recap.biggestPct).toFixed(1)}%</div>`
+    : '';
+  document.getElementById('recapBody').innerHTML = `
+    <div class="recap-stat" style="color:${deltaColor}">${nwDelta>=0?'+':''}${fmt(nwDelta)}</div>
+    <div class="recap-sub">net worth while you were gone</div>
+    ${moverLine}`;
+  document.getElementById('recapOverlay').classList.add('show');
+}
+
+function closeRecap(){
+  closeOverlay('recapOverlay');
+  render(); // now safe to let checkBroke() actually open the broke flow if the absence wiped them out
+  startTutorial();
+}
+
+/* ---------- 2a. Live market events (interrupt-and-decide) ---------- */
+// Deliberately no prediction-type assets here — they already have their own
+// periodic auto-resolve mechanic (2b below), and letting both systems own
+// the same asset's price at once would stomp on each other's tracking.
+const MARKET_EVENT_TEMPLATES = [
+  {assetId:'aapl', headline:'Leaked memo hints at big AAPL news'},
+  {assetId:'gmtx', headline:'GMTX recall rumors swirling'},
+  {assetId:'ncla', headline:'NCLA options activity spikes — someone knows something'},
+  {assetId:'doge', headline:'Rumor: DOGO about to pump'},
+  {assetId:'btcx', headline:'Whale wallet spotted accumulating BTCX'},
+  {assetId:'eurusd', headline:'Central bank chatter moves EUR/USD desks'},
+];
+let liveEvent = null; // {assetId, headline, remainingTicks, perTickMult, startPrice, choice}
+let nextLiveEventAt = Date.now() + randBetween(LIVE_EVENT_MIN_GAP_MS, LIVE_EVENT_MAX_GAP_MS);
+
+function maybeTriggerLiveEvent(){
+  if(liveEvent || tutorialActive || state.tutorialAwaitingRecovery) return; // one at a time, and don't layer this on the onboarding focus
+  if(document.getElementById('brokeOverlay').classList.contains('show')) return;
+  if(state.crashTicksLeft > 0 || (state.cryptoLaunchQueue && state.cryptoLaunchQueue.length)) return; // don't compete with the scripted crash for attention
+  if(Date.now() < nextLiveEventAt) return;
+  const unlocked = unlockedTierIds();
+  const pool = MARKET_EVENT_TEMPLATES.filter(t=>{
+    const a = ASSET_DEFS.find(x=>x.id===t.assetId);
+    return a && unlocked.includes(a.tier);
+  });
+  if(!pool.length) return; // nothing unlocked yet to build a rumor around
+  const tmpl = pool[Math.floor(Math.random()*pool.length)];
+  // Deliberately not always the same "correct" choice — big up, big down, or
+  // a near-flat fake-out are all in play, so acting/waiting/ignoring each win
+  // sometimes.
+  const roll = Math.random();
+  const outcomeMult = roll < 0.4 ? (1 + randBetween(0.15, 0.5))
+                     : roll < 0.8 ? (1 - randBetween(0.15, 0.5))
+                     : (1 + randBetween(-0.05, 0.05));
+  const totalTicks = Math.round(LIVE_EVENT_WINDOW_S*1000/TICK_MS);
+  liveEvent = {
+    assetId: tmpl.assetId,
+    headline: tmpl.headline,
+    remainingTicks: totalTicks,
+    perTickMult: Math.pow(outcomeMult, 1/totalTicks),
+    startPrice: state.prices[tmpl.assetId],
+    choice: null,
+  };
+  pushHeadline(tmpl.headline, null);
+  renderLiveEventBanner();
+  nextLiveEventAt = Date.now() + randBetween(LIVE_EVENT_MIN_GAP_MS, LIVE_EVENT_MAX_GAP_MS);
+}
+
+function liveEventChoice(choice){
+  if(!liveEvent || liveEvent.choice) return;
+  liveEvent.choice = choice;
+  if(choice === 'buy'){
+    const amt = Math.min(200, state.cash);
+    if(amt > 0){
+      const asset = allAssets().find(a=>a.id===liveEvent.assetId);
+      const price = state.prices[liveEvent.assetId];
+      state.cash -= amt;
+      state.holdings[liveEvent.assetId] = (state.holdings[liveEvent.assetId]||0) + amt/price;
+      const prevUnits = (state.holdings[liveEvent.assetId]||0) - amt/price;
+      const prevCost = state.costBasis[liveEvent.assetId]||0;
+      const totalUnits = state.holdings[liveEvent.assetId];
+      state.costBasis[liveEvent.assetId] = totalUnits>0 ? ((prevCost*prevUnits)+(price*(amt/price)))/totalUnits : price;
+      addLog(`Jumped on a rumor (${asset.name})`, '-'+fmt(amt), 'var(--down)');
+      progressChallenge('tradeCount');
+      trackTierTraded(asset.tier);
+    }
+  }
+  hideLiveEventBanner();
+  saveState();
+  render();
+}
+
+function resolveLiveEvent(){
+  if(!liveEvent) return;
+  const asset = allAssets().find(a=>a.id===liveEvent.assetId);
+  const pct = ((state.prices[asset.id]-liveEvent.startPrice)/liveEvent.startPrice)*100;
+  const dir = pct >= 0 ? 'up' : 'down';
+  let headline;
+  if(liveEvent.choice === 'buy'){
+    headline = `${asset.name} ${dir==='up'?'pays off for the buyers who jumped in':'burns the buyers who jumped in'} — ${pct>=0?'+':''}${pct.toFixed(1)}%`;
+  } else if(liveEvent.choice === 'wait'){
+    headline = `${asset.name} ${dir==='up'?'ripped':'dumped'} while the cautious ones watched — ${pct>=0?'+':''}${pct.toFixed(1)}%`;
+  } else {
+    headline = `${asset.name} settles ${dir} ${Math.abs(pct).toFixed(1)}% — most people never even saw the rumor`;
+  }
+  pushHeadline(headline, dir);
+  hideLiveEventBanner();
+  liveEvent = null;
+}
+
+function renderLiveEventBanner(){
+  if(!liveEvent) return;
+  document.getElementById('levHeadline').textContent = liveEvent.headline;
+  document.getElementById('liveEventBanner').classList.add('show');
+  updateLiveEventTimer();
+}
+function updateLiveEventTimer(){
+  const timerEl = document.getElementById('levTimer');
+  if(!timerEl) return;
+  if(!liveEvent){ timerEl.textContent = ''; return; }
+  const secs = Math.max(0, Math.round(liveEvent.remainingTicks * TICK_MS / 1000));
+  timerEl.textContent = liveEvent.choice ? 'Decision locked in' : secs+'s to decide';
+}
+function hideLiveEventBanner(){
+  const el = document.getElementById('liveEventBanner');
+  if(el) el.classList.remove('show');
+}
+
+/* ---------- 2b. Short-fuse predictions ---------- */
+// Rather than a whole separate mini-market UI, the existing prediction
+// assets themselves now periodically resolve (payout at 97¢ or wipe to 0)
+// and reopen at a fresh ~50/50 price — same trading UI, real "resolves soon"
+// payoff, without a second parallel trading system to maintain.
+function resolveDuePredictions(){
+  const now = Date.now();
+  ASSET_DEFS.filter(a=>a.type==='prediction').forEach(a=>{
+    if(!state.predictionResolveAt[a.id] || now < state.predictionResolveAt[a.id]) return;
+    const price = state.prices[a.id]; // implied odds — also the win probability
+    const won = Math.random() < price;
+    const held = state.holdings[a.id]||0;
+    if(won){
+      if(held > 0){
+        const payout = held * 0.97;
+        state.cash += payout;
+        addLog(`${a.name} resolved YES`, '+'+fmt(payout), 'var(--up)');
+      } else {
+        pushHeadline(`${a.name} resolves YES`, 'up');
+      }
+    } else {
+      if(held > 0) addLog(`${a.name} resolved NO`, '-'+fmt(held), 'var(--down)');
+      else pushHeadline(`${a.name} resolves NO`, 'down');
+    }
+    state.holdings[a.id] = 0;
+    state.costBasis[a.id] = 0;
+    const freshPrice = randBetween(0.4, 0.6);
+    state.prices[a.id] = freshPrice;
+    state.startPrices[a.id] = freshPrice;
+    state.predictionResolveAt[a.id] = now + randBetween(PREDICTION_RESOLVE_MIN_S, PREDICTION_RESOLVE_MAX_S)*1000;
+  });
+}
+
+/* ---------- 2c. Hot asset rotation ---------- */
+let nextHotAssetAt = Date.now() + randBetween(HOT_ASSET_MIN_GAP_MS, HOT_ASSET_MAX_GAP_MS);
+function maybeRotateHotAsset(){
+  const now = Date.now();
+  if(state.hotAssetId && now > state.hotAssetUntil){
+    state.hotAssetId = null;
+  }
+  if(!state.hotAssetId && now >= nextHotAssetAt){
+    const unlocked = unlockedTierIds();
+    const pool = ASSET_DEFS.filter(a=>unlocked.includes(a.tier));
+    if(pool.length){
+      const pick = pool[Math.floor(Math.random()*pool.length)];
+      state.hotAssetId = pick.id;
+      state.hotAssetUntil = now + HOT_ASSET_DURATION_MS;
+      pushHeadline(`${pick.name} is heating up — traders piling in`, 'up');
+    }
+    nextHotAssetAt = now + randBetween(HOT_ASSET_MIN_GAP_MS, HOT_ASSET_MAX_GAP_MS);
+  }
+}
+
+/* ---------- 3. Micro-goals, streaks ---------- */
+const CHALLENGE_POOL = [
+  {id:'trades3', type:'tradeCount', target:3, label:'Make 3 trades', reward:50},
+  {id:'trades5', type:'tradeCount', target:5, label:'Make 5 trades', reward:80},
+  {id:'sellOne', type:'sellCount', target:1, label:'Sell something', reward:30},
+  {id:'safeHaven', type:'safeHavenBuy', target:1, label:'Park cash in a safe haven', reward:35},
+  {id:'newTier', type:'newTier', target:1, label:"Trade a market tier you haven't tried this round", reward:45},
+  {id:'noLoanRecovery', type:'noLoanRecovery', target:1, label:'Recover from broke without a loan', reward:60},
+  {id:'takeLoan', type:'takeLoan', target:1, label:'Take a loan shark bailout', reward:25},
+  {id:'unlockTier', type:'tierUnlock', target:1, label:'Unlock a new market tier', reward:70},
+];
+function ensureChallenges(){
+  if(!state.activeChallenges) state.activeChallenges = [];
+  if(state.activeChallenges.length === 0 || state.activeChallenges.every(c=>c.done)){
+    const shuffled = [...CHALLENGE_POOL].sort(()=>Math.random()-0.5);
+    state.activeChallenges = shuffled.slice(0,2).map(c=>({...c, progress:0, done:false}));
+    state.challengeTradedTiers = [];
+    saveState();
+  }
+}
+function progressChallenge(type, amount){
+  ensureChallenges();
+  amount = amount||1;
+  let anyDone = false;
+  state.activeChallenges.forEach(c=>{
+    if(c.done || c.type!==type) return;
+    c.progress += amount;
+    if(c.progress >= c.target){
+      c.done = true;
+      state.cash += c.reward;
+      addLog(`Challenge complete: ${c.label}`, '+'+fmt(c.reward), 'var(--cash)');
+      showToast(`✓ ${c.label} — +${fmt(c.reward)}`);
+      anyDone = true;
+    }
+  });
+  // Deliberately no render() here — every call site (doTrade, takeLoan,
+  // finishMinigame, liveEventChoice, and checkTierUnlocks which itself runs
+  // INSIDE render()) already renders again right after calling this, so
+  // rendering here too would either be redundant or, for checkTierUnlocks,
+  // a reentrant render() nested inside render() itself.
+  if(anyDone) saveState();
+}
+function trackTierTraded(tier){
+  if(!state.challengeTradedTiers) state.challengeTradedTiers = [];
+  if(!state.challengeTradedTiers.includes(tier)){
+    state.challengeTradedTiers.push(tier);
+    progressChallenge('newTier');
+  }
+}
+function renderChallenges(){
+  ensureChallenges();
+  const el = document.getElementById('challengesList');
+  if(!el) return;
+  el.innerHTML = state.activeChallenges.map(c=>`
+    <div class="challenge ${c.done?'done':''}">
+      <div class="challenge-label">${c.done?'✓ ':''}${c.label}</div>
+      <div class="challenge-progress">${c.done?'+'+fmt(c.reward):Math.min(c.progress,c.target)+'/'+c.target}</div>
+    </div>`).join('');
+}
+
+const STREAK_TITLES = [
+  {min:12, title:'Certified degenerate'},
+  {min:8, title:'Definitely gonna jinx it'},
+  {min:5, title:'Unstoppable'},
+  {min:3, title:'Hot hand'},
+];
+function streakTitle(n){
+  const hit = STREAK_TITLES.find(t=>n>=t.min);
+  return hit ? hit.title : null;
+}
+function renderStreak(){
+  const el = document.getElementById('streakBadge');
+  if(!el) return;
+  const title = streakTitle(state.winStreak||0);
+  if(title){
+    el.style.display = 'block';
+    el.textContent = `🔥 ${state.winStreak} streak — ${title}`;
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+/* ---------- 4. Juice ---------- */
+function hapticTap(){ if(navigator.vibrate) navigator.vibrate(15); }
+
+/* ---------- 5. Debug/testing mode (playtest-only) ---------- */
+function initDebugMode(){
+  const params = new URLSearchParams(location.search);
+  if(params.has('debug')){ state.debugMode = true; saveState(); }
+  if(state.debugMode){
+    TIERS.forEach(t=>{ if(t.unlockAt>0) t.unlockAt = Math.max(50, Math.round(t.unlockAt/10)); });
+    RETIRE_TIERS.forEach(t=>{ t.amt = Math.max(50, Math.round(t.amt/10)); });
+  }
+}
+function debugSimulateOffline(){
+  state.lastSeenAt = Date.now() - 3600*1000;
+  saveState();
+  location.reload();
+}
+let tickerHoldTimer = null;
+function startTickerHold(){
+  tickerHoldTimer = setTimeout(()=>{
+    state.debugMode = !state.debugMode;
+    saveState();
+    showToast(state.debugMode ? 'Debug mode ON — reload to apply' : 'Debug mode OFF — reload to apply');
+  }, 2000);
+}
+function cancelTickerHold(){ clearTimeout(tickerHoldTimer); }
 
 /* ---------- ticker ---------- */
 let tickerQueue = [];
@@ -719,9 +1201,16 @@ function render(){
   renderHoldings();
   renderRetirement();
   renderLog();
+  renderStreak();
+  renderChallenges();
+  updateLiveEventTimer();
+  const debugRow = document.getElementById('debugRow');
+  if(debugRow) debugRow.style.display = state.debugMode ? 'block' : 'none';
   checkBroke();
   if(tutorialActive) refreshTutorialSpotlight();
 }
+
+function randBetween(min, max){ return min + Math.random()*(max-min); }
 
 function fmt(n){
   const neg = n < 0;
@@ -760,12 +1249,14 @@ function renderMarkets(){
           </div>`;
       }
     }
+    const flashClass = priceFlashClass(a.id, price);
+    const isHot = a.id === state.hotAssetId;
     risky.innerHTML += `
-      <div class="asset ${isLocked?'locked':''}" ${isLocked?'':`onclick="openTrade('${a.id}')"`}>
+      <div class="asset ${isLocked?'locked':''} ${isHot?'hot':''} ${flashClass}" ${isLocked?'':`onclick="openTrade('${a.id}')"`}>
         <div class="asset-left">
           <div class="asset-icon" style="background:${isLocked?'var(--surface3)':'color-mix(in srgb, '+a.color+' 18%, var(--surface2))'}; color:${isLocked?'var(--text-faint)':a.color};">${isLocked?'&#128274;':a.icon}</div>
           <div>
-            <div class="asset-name">${a.name}</div>
+            <div class="asset-name">${a.name}${isHot?' <span class="hot-badge">🔥 HOT</span>':''}</div>
             <div class="asset-sub">${isLocked?`Unlocks at $${tierInfo.unlockAt.toLocaleString()} net worth`:a.sub}</div>
           </div>
         </div>
@@ -779,8 +1270,9 @@ function renderMarkets(){
   SAFE_DEFS.forEach(a=>{
     const price = state.prices[a.id];
     const chg = priceChangePct(a);
+    const flashClass = priceFlashClass(a.id, price);
     safe.innerHTML += `
-      <div class="asset" onclick="openTrade('${a.id}')">
+      <div class="asset ${flashClass}" onclick="openTrade('${a.id}')">
         <div class="asset-left">
           <div class="asset-icon" style="background:color-mix(in srgb, ${a.color} 18%, var(--surface2)); color:${a.color};">${a.icon}</div>
           <div>
@@ -794,6 +1286,23 @@ function renderMarkets(){
         </div>
       </div>`;
   });
+}
+
+// Tracks each asset's price at the PREVIOUS render (any render, not just
+// ticks) so a card only flashes when its price actually moved since it was
+// last painted, not on every incidental re-render (opening a sheet, etc).
+// Below FLASH_MIN_PCT it doesn't flash at all — most ticks are tiny ambient
+// drift, and flashing on literally every one of them reads as constant
+// noise rather than a signal.
+const FLASH_MIN_PCT = 0.6;
+let lastRenderedPrices = {};
+function priceFlashClass(id, price){
+  const prev = lastRenderedPrices[id];
+  lastRenderedPrices[id] = price;
+  if(prev === undefined || price === prev) return '';
+  const pct = Math.abs((price-prev)/prev) * 100;
+  if(pct < FLASH_MIN_PCT) return '';
+  return price > prev ? 'flash-up' : 'flash-down';
 }
 
 function dismissExplainer(tierId){
@@ -890,26 +1399,47 @@ function doTrade(dir){
   let bought = false;
   if(dir === 'buy'){
     if(amt > state.cash){ showToast("You don't have that much cash"); return; }
+    const prevUnits = state.holdings[a.id]||0;
+    const prevCost = state.costBasis[a.id]||0;
+    const newUnits = amt/price;
     state.cash -= amt;
-    state.holdings[a.id] = (state.holdings[a.id]||0) + amt/price;
+    state.holdings[a.id] = prevUnits + newUnits;
+    state.costBasis[a.id] = state.holdings[a.id]>0 ? ((prevCost*prevUnits)+(price*newUnits))/state.holdings[a.id] : price;
     addLog(`Bought ${a.name}`, '-'+fmt(amt), 'var(--down)');
     bought = true;
+    progressChallenge('tradeCount');
+    if(a.type==='safe') progressChallenge('safeHavenBuy');
+    trackTierTraded(a.tier || 'safe');
   } else {
     const heldVal = (state.holdings[a.id]||0) * price;
     const sellAmt = Math.min(amt, heldVal);
     if(sellAmt <= 0){ showToast("You don't own any of that"); return; }
+    // Win streak: was this position sold for more per-unit than its average cost?
+    const wasProfitable = price > (state.costBasis[a.id]||price);
+    state.winStreak = wasProfitable ? (state.winStreak||0)+1 : 0;
     state.holdings[a.id] -= sellAmt/price;
+    if(state.holdings[a.id] <= 0.0001) state.costBasis[a.id] = 0;
     state.cash += sellAmt;
     addLog(`Sold ${a.name}`, '+'+fmt(sellAmt), 'var(--up)');
+    progressChallenge('tradeCount');
+    progressChallenge('sellCount');
+    trackTierTraded(a.tier || 'safe');
   }
   saveState();
   render();
-  if(bought) tutorialOnEvent('completeBuy'); // only a real, successful buy advances this step
-  closeOverlay('tradeOverlay');
+  hapticTap();
+  // Brief scale-and-fade confirmation instead of closing instantly (RETENTION_SPEC.md juice).
+  document.getElementById('tradeConfirm').classList.add('show');
+  setTimeout(()=>{
+    document.getElementById('tradeConfirm').classList.remove('show');
+    closeOverlay('tradeOverlay');
+    if(bought) tutorialOnEvent('completeBuy'); // only a real, successful buy advances this step
+  }, 450);
 }
 
 /* ---------- broke / recovery flow ---------- */
 function checkBroke(){
+  if(suppressBrokeCheck) return; // an offline recap is about to show — broke flow (if any) fires after it closes, not silently behind it
   if(state.forceBrokeNext){
     // The scripted crash's final beat wants this to land for sure — don't
     // leave it to the normal threshold, since residual value from whatever
@@ -926,14 +1456,20 @@ function checkBroke(){
 }
 
 function takeLoan(){
+  const wasAwaitingTutorial = state.tutorialAwaitingRecovery;
   state.cash += 500;
   state.debt += 500;
   addLog('Took a loan shark bailout', '+$500', 'var(--cash)');
   resetRiskyPrices();
-  saveState();
+  progressChallenge('takeLoan');
   document.getElementById('brokeOverlay').classList.remove('show');
-  render();
-  showToast("Cash in hand. That interest won't forgive itself.");
+  if(wasAwaitingTutorial){
+    completeTutorial(); // supersedes the +$500/debt with a clean $1,000 reset — that's the intended tutorial payoff
+  } else {
+    saveState();
+    render();
+    showToast("Cash in hand. That interest won't forgive itself.");
+  }
 }
 
 function startRecovery(kind){
@@ -1053,16 +1589,22 @@ function resetRiskyPrices(){
 }
 
 function finishMinigame(payout){
+  const wasAwaitingTutorial = state.tutorialAwaitingRecovery;
   state.cash += payout;
   addLog(`Recovery payout (${recoverySession})`, '+'+fmt(payout), 'var(--cash)');
   resetRiskyPrices();
+  progressChallenge('noLoanRecovery');
   saveState();
   render();
+  hapticTap();
   const resultEl = document.getElementById('mgResult');
   if(resultEl){
     resultEl.innerHTML = `<div class="mg-payout">+${fmt(payout)}</div><p style="font-size:12px; color:var(--text-dim); margin-top:4px;">Back to trading.</p>`;
   }
-  setTimeout(()=>{ closeOverlay('mgOverlay'); }, 1400);
+  setTimeout(()=>{
+    closeOverlay('mgOverlay');
+    if(wasAwaitingTutorial) completeTutorial(); // fires right as the minigame sheet closes, not layered on top of it
+  }, 1400);
 }
 
 /* ---------- tutorial (spotlight engine, see TUTORIAL_SPEC.md) ---------- */
@@ -1072,7 +1614,7 @@ let tutorialSpotlightEl = null;
 let tutorialRepositionHandler = null;
 
 function startTutorial(){
-  if(state.tutorialComplete) return;
+  if(state.tutorialComplete || state.tutorialAwaitingRecovery) return; // already toured, just waiting on the real crash/recovery now
   tutorialActive = true;
   tutorialIndex = -1;
   advanceTutorial();
@@ -1080,6 +1622,7 @@ function startTutorial(){
 
 function replayTutorial(){
   state.tutorialComplete = false;
+  state.tutorialAwaitingRecovery = false;
   saveState();
   switchView('portfolio');
   startTutorial();
@@ -1098,22 +1641,55 @@ function tutorialOnEvent(eventName){
 
 function advanceTutorial(){
   tutorialIndex++;
-  if(tutorialIndex >= TUTORIAL_STEPS.length){ endTutorial(); return; }
+  if(tutorialIndex >= TUTORIAL_STEPS.length){ finishSpotlightTour(); return; }
   const step = TUTORIAL_STEPS[tutorialIndex];
   const target = step.target();
   if(!target && step.skipIfNoTarget){ advanceTutorial(); return; }
   showTutorialStep(step, target);
 }
 
-function skipTutorial(){ endTutorial(); }
+// The walkthrough itself is done, but the tutorial isn't "complete" yet —
+// that's now earned by actually living through the scripted crash and
+// recovering (see completeTutorial, called from finishMinigame/takeLoan).
+// Just hide the spotlight UI and wait, unless the crash already ran its
+// course before the player finished the walkthrough — then there's nothing
+// left to wait for, so wrap up immediately instead of waiting forever.
+function finishSpotlightTour(){
+  tutorialActive = false;
+  clearSpotlight();
+  document.getElementById('tutTooltip').classList.remove('show');
+  document.getElementById('tutBackdrop').classList.remove('show');
+  const brokeShowing = document.getElementById('brokeOverlay').classList.contains('show');
+  if(state.cryptoLaunchPlayed && !brokeShowing){
+    completeTutorial();
+  } else {
+    state.tutorialAwaitingRecovery = true;
+    saveState();
+  }
+}
 
-function endTutorial(){
+function skipTutorial(){
   tutorialActive = false;
   clearSpotlight();
   document.getElementById('tutTooltip').classList.remove('show');
   document.getElementById('tutBackdrop').classList.remove('show');
   state.tutorialComplete = true;
+  state.tutorialAwaitingRecovery = false;
   saveState();
+}
+
+// The real payoff moment: the scripted crash actually happened and the
+// player actually recovered from it (minigame or loan). Reset to a clean
+// $1,000 slate and mark the tutorial genuinely finished.
+function completeTutorial(){
+  state.tutorialAwaitingRecovery = false;
+  state.tutorialComplete = true;
+  state.cash = 1000;
+  state.debt = 0;
+  state.dayStartNetWorth = 1000;
+  saveState();
+  render();
+  document.getElementById('tutorialCompleteOverlay').classList.add('show');
 }
 
 function showTutorialStep(step, target){
@@ -1123,7 +1699,7 @@ function showTutorialStep(step, target){
   const btn = document.getElementById('tutTooltipBtn');
   if(step.advance === 'button'){
     btn.style.display = '';
-    btn.textContent = (step.id === 'done') ? 'Done' : 'Next';
+    btn.textContent = (tutorialIndex === TUTORIAL_STEPS.length-1) ? 'Got it' : 'Next';
   } else {
     btn.style.display = 'none'; // this step only advances once the player does the real thing
   }
@@ -1218,10 +1794,20 @@ function showToast(msg){
 
 /* ---------- boot ---------- */
 loadState();
+initDebugMode();
+const _offlineRecap = runOfflineRecap();
 renderTicker();
+suppressBrokeCheck = !!_offlineRecap; // don't pop the broke sheet silently behind the recap modal
 render();
-startTutorial();
-tickHandle = setInterval(tickPrices, TICK_MS);
+suppressBrokeCheck = false;
+if(_offlineRecap){ showRecap(_offlineRecap); } else { startTutorial(); }
+const tickerWrapEl = document.getElementById('ticker-wrap');
+tickerWrapEl.addEventListener('touchstart', startTickerHold);
+tickerWrapEl.addEventListener('mousedown', startTickerHold);
+tickerWrapEl.addEventListener('touchend', cancelTickerHold);
+tickerWrapEl.addEventListener('mouseup', cancelTickerHold);
+tickerWrapEl.addEventListener('mouseleave', cancelTickerHold);
+tickHandle = setInterval(tickPrices, state.debugMode ? 500 : TICK_MS);
 </script>
 </body>
 </html>
