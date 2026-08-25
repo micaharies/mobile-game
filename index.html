@@ -29,12 +29,15 @@ button{font-family:var(--font-ui); cursor:pointer; border:none; background:none;
 input{font-family:var(--font-mono);}
 
 /* ===== Ticker ===== */
+/* Scroll position is driven by JS (see tickerFrame), not a CSS % keyframe —
+   a %-based transform is relative to the ticker's OWN width, which changes
+   every time a headline is pushed, causing a visible jump/stutter mid-scroll.
+   A pixel offset computed in JS doesn't have that problem. */
 #ticker-wrap{background:#0a0a0c; border-bottom:1px solid var(--border); overflow:hidden; white-space:nowrap; height:30px; display:flex; align-items:center; position:relative;}
-#ticker{display:inline-block; font-family:var(--font-mono); font-size:12px; color:var(--text-dim); padding-left:100%; animation:scrollTicker 56s linear infinite;}
+#ticker{display:inline-block; font-family:var(--font-mono); font-size:12px; color:var(--text-dim); will-change:transform;}
 #ticker span{margin-right:36px;}
 #ticker span.up{color:var(--up);}
 #ticker span.down{color:var(--down);}
-@keyframes scrollTicker{ from{transform:translateX(0);} to{transform:translateX(-100%);} }
 
 /* ===== Header ===== */
 header{padding:18px 16px 14px; border-bottom:1px solid var(--border);}
@@ -64,6 +67,7 @@ h2:first-child{margin-top:0;}
 /* ===== Asset card ===== */
 .asset{display:flex; align-items:center; justify-content:space-between; background:var(--surface1); border:1px solid var(--border); border-radius:12px; padding:12px 14px; margin-bottom:8px;}
 .asset.locked{opacity:.55;}
+.asset.locked.tut-spot{opacity:1;}
 .asset-left{display:flex; align-items:center; gap:10px; min-width:0;}
 .asset-icon{width:34px; height:34px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-family:var(--font-mono); font-size:13px; font-weight:700; flex-shrink:0;}
 .asset-name{font-size:14px; font-weight:500;}
@@ -129,14 +133,20 @@ h2:first-child{margin-top:0;}
 .explainer-card .ex-body{font-size:12px; color:var(--text-dim); line-height:1.4; margin:4px 0 8px;}
 .explainer-card .ex-dismiss{font-size:11px; color:var(--cash); font-weight:600;}
 
-/* ===== Tutorial sheet ===== */
-#tutorialOverlay .sheet{position:relative;}
-.tut-skip{position:absolute; top:18px; right:18px; font-size:12px; color:var(--text-faint);}
+/* ===== Tutorial (spotlight engine) ===== */
+/* .tut-title / .tut-text are shared with the crash popup below */
 .tut-title{font-size:17px; font-weight:600; margin-bottom:8px;}
 .tut-text{font-size:13px; color:var(--text-dim); line-height:1.5;}
-.tut-dots{display:flex; justify-content:center; gap:6px; margin:16px 0 16px;}
-.tut-dots span{width:6px; height:6px; border-radius:50%; background:var(--surface3);}
-.tut-dots span.active{background:var(--cash);}
+.tut-backdrop{position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:9998; display:none;}
+.tut-backdrop.show{display:block;}
+.tut-spot{position:relative; z-index:9999; box-shadow:0 0 0 4px var(--cash), 0 0 0 2000px rgba(0,0,0,.6); border-radius:10px;}
+.tut-tooltip{position:fixed; z-index:10000; display:none; width:min(88vw,340px); background:var(--surface1); border:1px solid var(--border-strong); border-radius:14px; padding:16px; box-shadow:0 8px 24px rgba(0,0,0,.4);}
+.tut-tooltip.show{display:block;}
+.tut-tooltip-title{font-size:15px; font-weight:600; margin-bottom:6px;}
+.tut-tooltip-body{font-size:12.5px; color:var(--text-dim); line-height:1.5; margin-bottom:14px;}
+.tut-tooltip-row{display:flex; justify-content:space-between; align-items:center; gap:10px;}
+.tut-skip-link{font-size:11px; color:var(--text-faint); text-decoration:underline;}
+.tut-tooltip-row .btn{padding:8px 18px;}
 
 /* ===== Crash popup ===== */
 .crash-icon{font-size:30px; text-align:center; margin-bottom:8px;}
@@ -186,7 +196,7 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
   <div class="view" id="view-log">
     <h2>Recent activity</h2>
     <div id="logList"></div>
-    <footer class="reset-row"><button onclick="resetGame()">Reset save data</button></footer>
+    <footer class="reset-row"><button onclick="replayTutorial()">Replay tutorial</button> · <button onclick="resetGame()">Reset save data</button></footer>
   </div>
 </main>
 
@@ -205,14 +215,16 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
     <div class="sheet-handle"></div>
     <h3 id="tradeAssetName">Asset</h3>
     <p class="desc" id="tradeAssetPrice">$0.00 per unit</p>
-    <div class="amount-row">
-      <span style="color:var(--text-faint); font-size:14px;">$</span>
-      <input type="number" id="tradeAmount" placeholder="0" min="0">
-    </div>
-    <div class="quick-amts">
-      <button onclick="quickAmt(25)">25%</button>
-      <button onclick="quickAmt(50)">50%</button>
-      <button onclick="quickAmt(100)">Max</button>
+    <div class="amount-block">
+      <div class="amount-row">
+        <span style="color:var(--text-faint); font-size:14px;">$</span>
+        <input type="number" id="tradeAmount" placeholder="0" min="0">
+      </div>
+      <div class="quick-amts">
+        <button onclick="quickAmt(25)">25%</button>
+        <button onclick="quickAmt(50)">50%</button>
+        <button onclick="quickAmt(100)">Max</button>
+      </div>
     </div>
     <div class="btn-row">
       <button class="btn btn-block" onclick="doTrade('sell')">Sell</button>
@@ -247,14 +259,14 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
   <div class="sheet" id="mgSheet"></div>
 </div>
 
-<!-- Tutorial sheet -->
-<div class="overlay" id="tutorialOverlay">
-  <div class="sheet">
-    <span class="tut-skip" onclick="tutorialSkip()">Skip</span>
-    <div class="sheet-handle"></div>
-    <div id="tutorialBody"></div>
-    <div class="tut-dots" id="tutorialDots"></div>
-    <button class="btn btn-primary btn-block" id="tutorialCta" onclick="tutorialNext()">Next</button>
+<!-- Tutorial (spotlight engine) -->
+<div class="tut-backdrop" id="tutBackdrop"></div>
+<div class="tut-tooltip" id="tutTooltip">
+  <div class="tut-tooltip-title" id="tutTooltipTitle"></div>
+  <div class="tut-tooltip-body" id="tutTooltipBody"></div>
+  <div class="tut-tooltip-row">
+    <button class="tut-skip-link" onclick="skipTutorial()">Skip tutorial</button>
+    <button class="btn btn-primary" id="tutTooltipBtn" onclick="advanceTutorial()">Next</button>
   </div>
 </div>
 
@@ -287,10 +299,12 @@ const TIERS = [
 ];
 
 const CRYPTO_LAUNCH_ASSET = 'doge';
-// Steps 3-5 are a market-wide crash (not just DOGO), spread across three
-// ticks instead of one instant drop so it reads as a crash unfolding rather
-// than a single jump-cut. The final beat also zeroes cash (wipeCash) and
-// drops holdings to near-nothing, so this deliberately DOES guarantee
+// Steps 3-5 are a market-wide crash (not just DOGO). Each carries a `ticks`
+// count now — its `mult` is the TOTAL effect for that phase, spread evenly
+// across that many ticks (via an nth-root per-tick multiplier) so it reads
+// as a crash grinding on rather than three jump-cuts. 16 ticks/phase * 3
+// phases * TICK_MS(1250ms) = 60s total. The final beat also zeroes cash
+// (wipeCash) once its ticks run out, so this deliberately DOES guarantee
 // checkBroke() fires — onboarding is meant to walk the player through the
 // recovery loop, not just show a scary number. The one out: safe havens are
 // still spared, since staying crash-proof is their whole purpose per
@@ -299,9 +313,9 @@ const CRYPTO_LAUNCH_ASSET = 'doge';
 const CRYPTO_LAUNCH_SEQUENCE = [
   {mult:2.4, headline:'DOGO ignites on launch day, up huge out of the gate', dir:'up'},
   {mult:0.5, headline:'DOGO craters as early buyers cash out', dir:'down'},
-  {marketCrash:true, mult:0.31, headline:'Contagion spreads — panic selling hits the whole board', dir:'down'},
-  {marketCrash:true, mult:0.31, headline:"Circuit breakers trip, but the bleeding doesn't stop", dir:'down'},
-  {marketCrash:true, mult:0.02, wipeCash:true, headline:'Margin calls hit — cash and positions both wiped out', dir:'down'},
+  {marketCrash:true, mult:0.31, ticks:16, headline:'Contagion spreads — panic selling hits the whole board', dir:'down'},
+  {marketCrash:true, mult:0.31, ticks:16, headline:"Circuit breakers trip, but the bleeding doesn't stop", dir:'down'},
+  {marketCrash:true, mult:0.02, ticks:16, wipeCash:true, headline:'Margin calls hit — cash and positions both wiped out', dir:'down'},
 ];
 
 const TICK_MS = 1250;
@@ -335,11 +349,56 @@ const SAFE_DEFS = [
   {id:'bond', name:'Treasury Bond', sub:'Boring on purpose', type:'safe', price:50, vol:0.0008, drift:0.0001, icon:'T', color:'var(--up)'},
 ];
 
+// Spotlight onboarding — see TUTORIAL_SPEC.md. `target` is a resolver
+// function (not a static selector) since a few steps depend on live state
+// (first unlocked/locked asset card). advance:'button' waits for the tooltip's
+// own Next; advance:'interaction' waits for the player to actually perform
+// the real action (see tutorialOnEvent hooks in switchView/openTrade/doTrade).
 const TUTORIAL_STEPS = [
-  {title:'Welcome to Degenerate Capital', body:"You've got $1,000 and zero impulse control. Let's fix that.", cta:'Next'},
-  {title:'Net worth is everything', body:"Cash plus whatever you're holding, minus any debt. Watch it in the header — that number is the whole game.", cta:'Next'},
-  {title:'Markets tab', body:"Tap Markets below to see what's tradeable. You start with stocks — crypto, predictions, and forex unlock as your net worth climbs.", cta:'Next'},
-  {title:'Making a trade', body:'Tap any unlocked asset, enter an amount (or use 25% / 50% / Max), then Buy. Sell the same way when you\'re ready to cash out.', cta:"Let's trade"},
+  { id:'welcome', target:()=>null,
+    title:'Welcome to Degenerate Capital',
+    body:"You're starting with $1,000 in fake money. Trade it, lose it, beg for more, retire rich — all consequence-free. Let's walk through the basics.",
+    advance:'button' },
+  { id:'net-worth', target:()=>document.getElementById('netWorthVal'),
+    title:'This is your net worth',
+    body:"Cash plus whatever you're holding, minus any debt. This number is what everything in the game is measured against — market unlocks, retirement, bragging rights.",
+    advance:'button' },
+  { id:'ticker', target:()=>document.getElementById('ticker-wrap'),
+    title:'Keep an eye on the ticker',
+    body:"Headlines here react to what's actually happening in the markets. If something's about to move, you'll usually hear about it here first.",
+    advance:'button' },
+  { id:'markets-tab', target:()=>document.querySelector('nav button[data-view="markets"]'),
+    title:'This is where you trade',
+    body:"Tap Markets to see what's available. We'll head there now.",
+    advance:'interaction', event:'switchMarkets' },
+  { id:'asset-card', target:()=>document.querySelector('#riskyList .asset:not(.locked)'),
+    title:'Tap any market to trade it',
+    body:"Every card shows the current price and how much it's moved. Tap one to open the buy/sell sheet.",
+    advance:'interaction', event:'openAsset' },
+  { id:'trade-amount', target:()=>document.querySelector('#tradeOverlay .amount-block'),
+    title:'Enter how much to spend',
+    body:"This is in dollars, not units — the game converts it to however many shares/coins/units that buys at the current price. Use the quick-amount buttons if you don't want to type.",
+    advance:'button' },
+  { id:'buy-sell', target:()=>document.querySelector('#tradeOverlay .btn-row'),
+    title:'Buy locks in the trade',
+    body:"Once you own something, this same sheet lets you sell it back whenever you want — the price moves in real time, so what you paid isn't what you'll get back.",
+    advance:'interaction', event:'completeBuy' },
+  { id:'safe-havens', target:()=>document.querySelector('#safeList .asset'),
+    title:'Not everything here is chaos',
+    body:"Safe havens barely move. Park money here when you want to protect gains instead of risking them — this matters a lot once you're going for retirement.",
+    advance:'button' },
+  { id:'tiers', target:()=>document.querySelector('#riskyList .asset.locked'), skipIfNoTarget:true,
+    title:'Riskier markets unlock as you grow',
+    body:'Crypto, predictions, and forex all unlock once your net worth crosses their threshold. Grind the boring stuff, unlock the fun stuff.',
+    advance:'button' },
+  { id:'broke', target:()=>null,
+    title:'What happens if you go broke',
+    body:"Run out of cash with nothing left to sell, and you'll get three ways back in: beg (fast, low payout), community service (a quick minigame, better payout), or a loan shark (instant cash, but it'll cost you in interest later). Nobody's coming to bail you out — that part's on you.",
+    advance:'button' },
+  { id:'done', target:()=>null,
+    title:"That's the loop",
+    body:'Buy low, panic, sell high, panic differently. Go make some questionable decisions.',
+    advance:'button' },
 ];
 
 // Non-blocking, inline explainer shown once next to a tier's first asset the
@@ -359,6 +418,18 @@ const HEADLINE_POOL = [
   "Prediction market user confidently wrong again",
   "Index fund investors bored, financially fine",
   "Breaking: number went up, then down, then up",
+  "Loan shark sends 'friendly' reminder about the interest",
+  "Community service volunteer sets new personal raccoon-catching record",
+  "Whale wallet moves, panic ensues for no clear reason",
+  "Retirement calculator quietly gives up",
+  "Safe haven investors politely unbothered by the chaos",
+  "Forex desk intern still can't explain what a pip is",
+  "DOGO holders 'not selling', mostly because they can't watch",
+  "Margin call issued, ignored, issued again",
+  "Beggar outperforms three hedge funds this quarter",
+  "Prediction market resolves, everyone surprised anyway",
+  "Bond yields technically exist, someone confirms",
+  "Diversification discovered, immediately ignored",
 ];
 
 let state = null;
@@ -382,9 +453,12 @@ function defaultState(){
     unlockedTiersSeen: [],
     cryptoLaunchPlayed: false,
     cryptoLaunchQueue: [],
+    crashTicksLeft: 0,
+    crashPerTickMult: 1,
+    crashWipeCashPending: false,
     firstPlayAt: Date.now(),
     onboardingBoostEligible: true,
-    tutorialSeen: false,
+    tutorialComplete: false,
     explainersSeen: [],
     crashPopupShown: false,
     forceBrokeNext: false,
@@ -415,6 +489,11 @@ function loadState(){
     state.cryptoLaunchPlayed = state.unlockedTiersSeen.includes('crypto');
   }
   if(state.cryptoLaunchQueue === undefined) state.cryptoLaunchQueue = [];
+  if(state.crashTicksLeft === undefined){
+    state.crashTicksLeft = 0;
+    state.crashPerTickMult = 1;
+    state.crashWipeCashPending = false;
+  }
   // Same deal: saves from before the onboarding ramp existed shouldn't suddenly
   // get a boosted stock the next time they open the app.
   if(state.firstPlayAt === undefined){
@@ -424,7 +503,7 @@ function loadState(){
   // Returning players from before the tutorial existed already know how to
   // play — don't surprise them with it, and don't re-explain tiers they've
   // already got unlocked.
-  if(state.tutorialSeen === undefined) state.tutorialSeen = true;
+  if(state.tutorialComplete === undefined) state.tutorialComplete = true;
   if(state.explainersSeen === undefined){
     state.explainersSeen = state.unlockedTiersSeen.filter(id=>id!=='stocks');
   }
@@ -448,7 +527,7 @@ function resetGame(){
 function tickPrices(){
   let bigMove = null;
   let scriptedAssetThisTick = null; // an asset id, or 'ALL' for a market-wide crash step
-  if(state.cryptoLaunchQueue && state.cryptoLaunchQueue.length){
+  if((state.cryptoLaunchQueue && state.cryptoLaunchQueue.length) || state.crashTicksLeft > 0){
     scriptedAssetThisTick = applyCryptoLaunchStep();
   }
   allAssets().forEach(a=>{
@@ -465,7 +544,7 @@ function tickPrices(){
     }
   });
   if(bigMove && Math.random() < 0.6){
-    pushHeadline(`${bigMove.asset.name} ${bigMove.dir==='up'?'skyrockets':'craters'} on ${bigMove.dir==='up'?'hype':'panic'} selling`, bigMove.dir);
+    pushHeadline(`${bigMove.asset.name} ${bigMove.dir==='up'?'skyrockets on hype buying':'craters on panic selling'}`, bigMove.dir);
   }
   applyOnboardingBoost();
   accrueDebt();
@@ -491,6 +570,11 @@ function applyOnboardingBoost(){
 }
 
 function applyCryptoLaunchStep(){
+  // Resume a crash phase already in progress before pulling a new step off
+  // the queue — a phase's mult is spread across many ticks now, not applied
+  // in one shot.
+  if(state.crashTicksLeft > 0) return applyCrashTick();
+
   if(!state.cryptoLaunchQueue || !state.cryptoLaunchQueue.length) return null;
   const step = state.cryptoLaunchQueue.shift();
   if(step.marketCrash){
@@ -498,17 +582,27 @@ function applyCryptoLaunchStep(){
       state.crashPopupShown = true;
       document.getElementById('crashOverlay').classList.add('show');
     }
-    ASSET_DEFS.forEach(a=>{ state.prices[a.id] = Math.max(0.01, state.prices[a.id] * step.mult); });
-    if(step.wipeCash){
-      state.cash = 0;
-      state.forceBrokeNext = true;
-    }
+    const ticks = step.ticks || 1;
+    state.crashTicksLeft = ticks;
+    state.crashPerTickMult = Math.pow(step.mult, 1/ticks);
+    state.crashWipeCashPending = !!step.wipeCash;
     pushHeadline(step.headline, step.dir);
-    return 'ALL';
+    return applyCrashTick();
   }
   state.prices[CRYPTO_LAUNCH_ASSET] = Math.max(0.01, state.prices[CRYPTO_LAUNCH_ASSET] * step.mult);
   pushHeadline(step.headline, step.dir);
   return CRYPTO_LAUNCH_ASSET;
+}
+
+function applyCrashTick(){
+  ASSET_DEFS.forEach(a=>{ state.prices[a.id] = Math.max(0.01, state.prices[a.id] * state.crashPerTickMult); });
+  state.crashTicksLeft--;
+  if(state.crashTicksLeft <= 0 && state.crashWipeCashPending){
+    state.crashWipeCashPending = false;
+    state.cash = 0;
+    state.forceBrokeNext = true;
+  }
+  return 'ALL';
 }
 
 function triggerCryptoLaunch(){
@@ -547,10 +641,41 @@ function pushHeadline(text, dir){
 function renderTicker(){
   const el = document.getElementById('ticker');
   const combined = tickerQueue.length ? tickerQueue : HEADLINE_POOL.map(h=>({text:h,dir:null}));
-  el.innerHTML = combined.map(h=>`<span class="${h.dir||''}">${h.text}</span>`).join('');
+  const spans = combined.map(h=>`<span class="${h.dir||''}">${h.text}</span>`).join('');
+  // Content rendered twice back-to-back so tickerFrame can wrap the scroll
+  // position at the halfway point seamlessly (the two copies are identical,
+  // so the wrap is invisible) instead of restarting a CSS keyframe.
+  el.innerHTML = spans + spans;
 }
+
+let tickerPos = 0;
+let tickerLastTs = null;
+const TICKER_SPEED_PX_S = 55;
+function tickerFrame(ts){
+  if(tickerLastTs === null) tickerLastTs = ts;
+  const dt = (ts - tickerLastTs) / 1000;
+  tickerLastTs = ts;
+  const el = document.getElementById('ticker');
+  const half = el.scrollWidth / 2; // width of one (of the two) copies of the content
+  if(half > 0){
+    tickerPos = (tickerPos + TICKER_SPEED_PX_S * dt) % half;
+    el.style.transform = `translateX(${-tickerPos}px)`;
+  }
+  requestAnimationFrame(tickerFrame);
+}
+requestAnimationFrame(tickerFrame);
+
+// Avoid replaying any of the last few headlines shown — an 8-item pool
+// picked with plain Math.random() repeated visibly within a few minutes;
+// a 20-item pool helps too, but this is what actually stops back-to-back
+// or near-term repeats.
 setInterval(()=>{
-  if(Math.random()<0.5) pushHeadline(HEADLINE_POOL[Math.floor(Math.random()*HEADLINE_POOL.length)], null);
+  if(Math.random() < 0.5){
+    const recent = new Set(tickerQueue.slice(-4).map(h=>h.text));
+    const choices = HEADLINE_POOL.filter(h=>!recent.has(h));
+    const pool = choices.length ? choices : HEADLINE_POOL;
+    pushHeadline(pool[Math.floor(Math.random()*pool.length)], null);
+  }
 }, 9000);
 
 /* ---------- derived values ---------- */
@@ -595,6 +720,7 @@ function render(){
   renderRetirement();
   renderLog();
   checkBroke();
+  if(tutorialActive) refreshTutorialSpotlight();
 }
 
 function fmt(n){
@@ -747,6 +873,7 @@ function openTrade(id){
   document.getElementById('tradeAssetPrice').textContent = (currentTradeAsset.type==='prediction'? Math.round(price*100)+'¢' : '$'+price.toFixed(2)) + ' per unit · you own ' + (state.holdings[id]||0).toFixed(2);
   document.getElementById('tradeAmount').value = '';
   document.getElementById('tradeOverlay').classList.add('show');
+  tutorialOnEvent('openAsset');
 }
 function closeOverlay(id){ document.getElementById(id).classList.remove('show'); }
 function quickAmt(pct){
@@ -760,11 +887,13 @@ function doTrade(dir){
   if(!amt || amt <= 0){ showToast('Enter an amount first'); return; }
   const a = currentTradeAsset;
   const price = state.prices[a.id];
+  let bought = false;
   if(dir === 'buy'){
     if(amt > state.cash){ showToast("You don't have that much cash"); return; }
     state.cash -= amt;
     state.holdings[a.id] = (state.holdings[a.id]||0) + amt/price;
     addLog(`Bought ${a.name}`, '-'+fmt(amt), 'var(--down)');
+    bought = true;
   } else {
     const heldVal = (state.holdings[a.id]||0) * price;
     const sellAmt = Math.min(amt, heldVal);
@@ -775,6 +904,7 @@ function doTrade(dir){
   }
   saveState();
   render();
+  if(bought) tutorialOnEvent('completeBuy'); // only a real, successful buy advances this step
   closeOverlay('tradeOverlay');
 }
 
@@ -799,6 +929,7 @@ function takeLoan(){
   state.cash += 500;
   state.debt += 500;
   addLog('Took a loan shark bailout', '+$500', 'var(--cash)');
+  resetRiskyPrices();
   saveState();
   document.getElementById('brokeOverlay').classList.remove('show');
   render();
@@ -909,9 +1040,22 @@ function openMinigame(game, kind){
   }
 }
 
+// Gives the player a clean slate on every risky market (not safe havens —
+// those never crashed to begin with) after clawing back from broke, via any
+// recovery path. Resets price and % change back to each asset's starting
+// definition. Safe since a genuinely broke player holds ~$0 of any of these
+// at this point anyway.
+function resetRiskyPrices(){
+  ASSET_DEFS.forEach(a=>{
+    state.prices[a.id] = a.price;
+    state.startPrices[a.id] = a.price;
+  });
+}
+
 function finishMinigame(payout){
   state.cash += payout;
   addLog(`Recovery payout (${recoverySession})`, '+'+fmt(payout), 'var(--cash)');
+  resetRiskyPrices();
   saveState();
   render();
   const resultEl = document.getElementById('mgResult');
@@ -921,34 +1065,139 @@ function finishMinigame(payout){
   setTimeout(()=>{ closeOverlay('mgOverlay'); }, 1400);
 }
 
-/* ---------- tutorial ---------- */
-let tutorialStep = 0;
-function maybeStartTutorial(){
-  if(state.tutorialSeen) return;
-  tutorialStep = 0;
-  renderTutorialStep();
-  document.getElementById('tutorialOverlay').classList.add('show');
+/* ---------- tutorial (spotlight engine, see TUTORIAL_SPEC.md) ---------- */
+let tutorialActive = false;
+let tutorialIndex = -1;
+let tutorialSpotlightEl = null;
+let tutorialRepositionHandler = null;
+
+function startTutorial(){
+  if(state.tutorialComplete) return;
+  tutorialActive = true;
+  tutorialIndex = -1;
+  advanceTutorial();
 }
-function renderTutorialStep(){
-  const step = TUTORIAL_STEPS[tutorialStep];
-  document.getElementById('tutorialBody').innerHTML = `<div class="tut-title">${step.title}</div><p class="tut-text">${step.body}</p>`;
-  document.getElementById('tutorialDots').innerHTML = TUTORIAL_STEPS.map((_,i)=>`<span class="${i===tutorialStep?'active':''}"></span>`).join('');
-  document.getElementById('tutorialCta').textContent = step.cta;
-}
-function tutorialNext(){
-  if(tutorialStep >= TUTORIAL_STEPS.length-1){ tutorialFinish(true); return; }
-  tutorialStep++;
-  renderTutorialStep();
-}
-function tutorialSkip(){ tutorialFinish(false); }
-function tutorialFinish(completed){
-  state.tutorialSeen = true;
+
+function replayTutorial(){
+  state.tutorialComplete = false;
   saveState();
-  closeOverlay('tutorialOverlay');
-  if(completed){
-    switchView('markets');
-    showToast('Tip: buy any stock to get the ball rolling.');
+  switchView('portfolio');
+  startTutorial();
+}
+
+// Called by the real UI actions (switchView/openTrade/doTrade) an
+// 'interaction' step is waiting on — advances only if that step is the one
+// currently active, so taps elsewhere in the app are harmless no-ops.
+function tutorialOnEvent(eventName){
+  if(!tutorialActive) return;
+  const step = TUTORIAL_STEPS[tutorialIndex];
+  if(step && step.advance === 'interaction' && step.event === eventName){
+    advanceTutorial();
   }
+}
+
+function advanceTutorial(){
+  tutorialIndex++;
+  if(tutorialIndex >= TUTORIAL_STEPS.length){ endTutorial(); return; }
+  const step = TUTORIAL_STEPS[tutorialIndex];
+  const target = step.target();
+  if(!target && step.skipIfNoTarget){ advanceTutorial(); return; }
+  showTutorialStep(step, target);
+}
+
+function skipTutorial(){ endTutorial(); }
+
+function endTutorial(){
+  tutorialActive = false;
+  clearSpotlight();
+  document.getElementById('tutTooltip').classList.remove('show');
+  document.getElementById('tutBackdrop').classList.remove('show');
+  state.tutorialComplete = true;
+  saveState();
+}
+
+function showTutorialStep(step, target){
+  clearSpotlight();
+  document.getElementById('tutTooltipTitle').textContent = step.title;
+  document.getElementById('tutTooltipBody').textContent = step.body;
+  const btn = document.getElementById('tutTooltipBtn');
+  if(step.advance === 'button'){
+    btn.style.display = '';
+    btn.textContent = (step.id === 'done') ? 'Done' : 'Next';
+  } else {
+    btn.style.display = 'none'; // this step only advances once the player does the real thing
+  }
+  const tip = document.getElementById('tutTooltip');
+  const backdrop = document.getElementById('tutBackdrop');
+  tip.classList.add('show');
+  if(target){
+    backdrop.classList.remove('show'); // the spotlight ring itself does the dimming
+    target.classList.add('tut-spot');
+    tutorialSpotlightEl = target;
+    target.scrollIntoView({block:'center', behavior:'auto'});
+    attachRepositionListeners(target, tip);
+    requestAnimationFrame(()=>positionTooltip(target, tip));
+  } else {
+    backdrop.classList.add('show');
+    requestAnimationFrame(()=>positionTooltipCentered(tip));
+  }
+}
+
+function clearSpotlight(){
+  if(tutorialSpotlightEl){ tutorialSpotlightEl.classList.remove('tut-spot'); tutorialSpotlightEl = null; }
+  detachRepositionListeners();
+}
+
+function attachRepositionListeners(target, tip){
+  detachRepositionListeners();
+  tutorialRepositionHandler = ()=>positionTooltip(target, tip);
+  window.addEventListener('scroll', tutorialRepositionHandler, true);
+  window.addEventListener('resize', tutorialRepositionHandler);
+}
+function detachRepositionListeners(){
+  if(tutorialRepositionHandler){
+    window.removeEventListener('scroll', tutorialRepositionHandler, true);
+    window.removeEventListener('resize', tutorialRepositionHandler);
+    tutorialRepositionHandler = null;
+  }
+}
+
+function positionTooltip(target, tip){
+  tip.style.transform = 'none';
+  const r = target.getBoundingClientRect();
+  const body = document.body.getBoundingClientRect();
+  const margin = 10;
+  const left = Math.max(body.left + margin, Math.min(body.right - margin - tip.offsetWidth, r.left));
+  tip.style.left = left + 'px';
+  let top = r.bottom + margin;
+  const estH = tip.offsetHeight || 150;
+  if(top + estH > window.innerHeight - margin){ top = r.top - margin - estH; } // flip above if no room below
+  tip.style.top = Math.max(margin, top) + 'px';
+}
+
+function positionTooltipCentered(tip){
+  const body = document.body.getBoundingClientRect();
+  tip.style.left = (body.left + body.width/2) + 'px';
+  tip.style.top = (body.top + body.height/2) + 'px';
+  tip.style.transform = 'translate(-50%, -50%)';
+}
+
+// renderMarkets() rebuilds #riskyList/#safeList via innerHTML on every tick,
+// which destroys whatever node .tut-spot was attached to — called from
+// render() so a market-list-targeted step's ring survives the rebuild
+// instead of silently vanishing within a second or two.
+function refreshTutorialSpotlight(){
+  const step = TUTORIAL_STEPS[tutorialIndex];
+  if(!step) return;
+  const tip = document.getElementById('tutTooltip');
+  const target = step.target();
+  if(target !== tutorialSpotlightEl){
+    if(tutorialSpotlightEl) tutorialSpotlightEl.classList.remove('tut-spot');
+    tutorialSpotlightEl = target;
+    if(target) target.classList.add('tut-spot');
+  }
+  if(target) positionTooltip(target, tip);
+  else positionTooltipCentered(tip);
 }
 
 /* ---------- nav / toast ---------- */
@@ -956,6 +1205,7 @@ function switchView(name){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+name).classList.add('active');
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active', b.dataset.view===name));
+  if(name === 'markets') tutorialOnEvent('switchMarkets');
 }
 let toastT = null;
 function showToast(msg){
@@ -970,7 +1220,7 @@ function showToast(msg){
 loadState();
 renderTicker();
 render();
-maybeStartTutorial();
+startTutorial();
 tickHandle = setInterval(tickPrices, TICK_MS);
 </script>
 </body>
