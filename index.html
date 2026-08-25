@@ -737,6 +737,11 @@ function applyCrashTick(){
 function triggerCryptoLaunch(){
   if(state.cryptoLaunchPlayed) return;
   state.cryptoLaunchPlayed = true;
+  // A live rumor event tracks its own startPrice/perTickMult independent of
+  // the crash — if one happened to still be running when the crash starts,
+  // cancel it outright rather than let both systems fight over the same
+  // asset's price and leave the event's math referencing a stale baseline.
+  if(liveEvent){ hideLiveEventBanner(); liveEvent = null; }
   state.cryptoLaunchQueue = CRYPTO_LAUNCH_SEQUENCE.slice();
   applyCryptoLaunchStep(); // first beat lands immediately, alongside the unlock toast
 }
@@ -839,8 +844,12 @@ function showRecap(recap){
 
 function closeRecap(){
   closeOverlay('recapOverlay');
+  suppressBrokeCheck = false; // held true since boot so a mid-tick checkBroke() couldn't pop the broke sheet behind/on top of the still-open recap
   render(); // now safe to let checkBroke() actually open the broke flow if the absence wiped them out
-  startTutorial();
+  // Don't layer the tutorial spotlight on top of the broke sheet render() may have just opened —
+  // it'll pick back up on its own once the player resolves that (tutorialAwaitingRecovery-style flows
+  // already handle the crash/recovery case; this covers the recap-triggers-broke edge case).
+  if(!document.getElementById('brokeOverlay').classList.contains('show')) startTutorial();
 }
 
 /* ---------- 2a. Live market events (interrupt-and-decide) ---------- */
@@ -860,6 +869,7 @@ let nextLiveEventAt = Date.now() + randBetween(LIVE_EVENT_MIN_GAP_MS, LIVE_EVENT
 
 function maybeTriggerLiveEvent(){
   if(liveEvent || tutorialActive || state.tutorialAwaitingRecovery) return; // one at a time, and don't layer this on the onboarding focus
+  if(document.hidden) return; // RETENTION_SPEC.md: only trigger during active play, not while backgrounded — the tick interval keeps running in a backgrounded tab, but a decision banner nobody can see isn't a decision
   if(document.getElementById('brokeOverlay').classList.contains('show')) return;
   if(state.crashTicksLeft > 0 || (state.cryptoLaunchQueue && state.cryptoLaunchQueue.length)) return; // don't compete with the scripted crash for attention
   if(Date.now() < nextLiveEventAt) return;
@@ -899,12 +909,12 @@ function liveEventChoice(choice){
     if(amt > 0){
       const asset = allAssets().find(a=>a.id===liveEvent.assetId);
       const price = state.prices[liveEvent.assetId];
-      state.cash -= amt;
-      state.holdings[liveEvent.assetId] = (state.holdings[liveEvent.assetId]||0) + amt/price;
-      const prevUnits = (state.holdings[liveEvent.assetId]||0) - amt/price;
+      const prevUnits = state.holdings[liveEvent.assetId]||0;
       const prevCost = state.costBasis[liveEvent.assetId]||0;
-      const totalUnits = state.holdings[liveEvent.assetId];
-      state.costBasis[liveEvent.assetId] = totalUnits>0 ? ((prevCost*prevUnits)+(price*(amt/price)))/totalUnits : price;
+      const newUnits = amt/price;
+      state.cash -= amt;
+      state.holdings[liveEvent.assetId] = prevUnits + newUnits;
+      state.costBasis[liveEvent.assetId] = state.holdings[liveEvent.assetId]>0 ? ((prevCost*prevUnits)+(price*newUnits))/state.holdings[liveEvent.assetId] : price;
       addLog(`Jumped on a rumor (${asset.name})`, '-'+fmt(amt), 'var(--down)');
       progressChallenge('tradeCount');
       trackTierTraded(asset.tier);
@@ -972,7 +982,7 @@ function resolveDuePredictions(){
         pushHeadline(`${a.name} resolves YES`, 'up');
       }
     } else {
-      if(held > 0) addLog(`${a.name} resolved NO`, '-'+fmt(held), 'var(--down)');
+      if(held > 0) addLog(`${a.name} resolved NO`, '-'+fmt(held*price), 'var(--down)');
       else pushHeadline(`${a.name} resolves NO`, 'down');
     }
     state.holdings[a.id] = 0;
@@ -989,8 +999,11 @@ let nextHotAssetAt = Date.now() + randBetween(HOT_ASSET_MIN_GAP_MS, HOT_ASSET_MA
 function maybeRotateHotAsset(){
   const now = Date.now();
   if(state.hotAssetId && now > state.hotAssetUntil){
-    state.hotAssetId = null;
+    state.hotAssetId = null; // cooldown clearing is safe to run unconditionally, unlike starting a new one below
   }
+  if(tutorialActive || state.tutorialAwaitingRecovery) return; // don't compete with the onboarding focus
+  if(state.crashTicksLeft > 0 || (state.cryptoLaunchQueue && state.cryptoLaunchQueue.length)) return; // don't compete with the scripted crash
+  if(document.hidden) return;
   if(!state.hotAssetId && now >= nextHotAssetAt){
     const unlocked = unlockedTierIds();
     const pool = ASSET_DEFS.filter(a=>unlocked.includes(a.tier));
@@ -1092,7 +1105,11 @@ function hapticTap(){ if(navigator.vibrate) navigator.vibrate(15); }
 /* ---------- 5. Debug/testing mode (playtest-only) ---------- */
 function initDebugMode(){
   const params = new URLSearchParams(location.search);
-  if(params.has('debug')){ state.debugMode = true; saveState(); }
+  // No saveState() here — it stamps lastSeenAt = now, which would silently
+  // defeat debugSimulateOffline()'s whole purpose (loading with ?debug in
+  // the URL, as that flow does on reload, would reset the very timestamp
+  // it just backdated before runOfflineRecap() gets to read it).
+  if(params.has('debug')) state.debugMode = true;
   if(state.debugMode){
     TIERS.forEach(t=>{ if(t.unlockAt>0) t.unlockAt = Math.max(50, Math.round(t.unlockAt/10)); });
     RETIRE_TIERS.forEach(t=>{ t.amt = Math.max(50, Math.round(t.amt/10)); });
@@ -1375,7 +1392,9 @@ function addLog(text, amt, color){
 }
 
 /* ---------- trading ---------- */
+let tradeSessionId = 0; // bumped on every open so a stale doTrade() confirm timeout can tell it's no longer the active sheet
 function openTrade(id){
+  tradeSessionId++;
   currentTradeAsset = allAssets().find(a=>a.id===id);
   document.getElementById('tradeAssetName').textContent = currentTradeAsset.name;
   const price = state.prices[id];
@@ -1396,6 +1415,7 @@ function doTrade(dir){
   if(!amt || amt <= 0){ showToast('Enter an amount first'); return; }
   const a = currentTradeAsset;
   const price = state.prices[a.id];
+  const mySession = tradeSessionId;
   let bought = false;
   if(dir === 'buy'){
     if(amt > state.cash){ showToast("You don't have that much cash"); return; }
@@ -1415,8 +1435,15 @@ function doTrade(dir){
     const sellAmt = Math.min(amt, heldVal);
     if(sellAmt <= 0){ showToast("You don't own any of that"); return; }
     // Win streak: was this position sold for more per-unit than its average cost?
-    const wasProfitable = price > (state.costBasis[a.id]||price);
-    state.winStreak = wasProfitable ? (state.winStreak||0)+1 : 0;
+    // A cost basis of exactly 0 means "never tracked" (a real buy can't produce
+    // one — price is always >0), e.g. a holding backfilled from a save that
+    // predates cost-basis tracking. Leave the streak untouched rather than
+    // falling back to price>price (always false), which would wrongly zero
+    // a streak on a legitimately profitable sale.
+    if(state.costBasis[a.id] > 0){
+      const wasProfitable = price > state.costBasis[a.id];
+      state.winStreak = wasProfitable ? (state.winStreak||0)+1 : 0;
+    }
     state.holdings[a.id] -= sellAmt/price;
     if(state.holdings[a.id] <= 0.0001) state.costBasis[a.id] = 0;
     state.cash += sellAmt;
@@ -1432,6 +1459,7 @@ function doTrade(dir){
   document.getElementById('tradeConfirm').classList.add('show');
   setTimeout(()=>{
     document.getElementById('tradeConfirm').classList.remove('show');
+    if(tradeSessionId !== mySession) return; // the user already closed this and opened a different asset's sheet in the meantime — don't yank it shut or double-advance the tutorial
     closeOverlay('tradeOverlay');
     if(bought) tutorialOnEvent('completeBuy'); // only a real, successful buy advances this step
   }, 450);
@@ -1660,7 +1688,12 @@ function finishSpotlightTour(){
   document.getElementById('tutTooltip').classList.remove('show');
   document.getElementById('tutBackdrop').classList.remove('show');
   const brokeShowing = document.getElementById('brokeOverlay').classList.contains('show');
-  if(state.cryptoLaunchPlayed && !brokeShowing){
+  // cryptoLaunchPlayed flips true the instant the crash STARTS, not when it
+  // finishes — with the crash now spread across a full minute, a player can
+  // easily finish the walkthrough while it's still actively unfolding. Treat
+  // that the same as "hasn't happened yet," not as "already resolved."
+  const crashInProgress = state.crashTicksLeft > 0 || (state.cryptoLaunchQueue && state.cryptoLaunchQueue.length > 0);
+  if(state.cryptoLaunchPlayed && !crashInProgress && !brokeShowing){
     completeTutorial();
   } else {
     state.tutorialAwaitingRecovery = true;
@@ -1799,8 +1832,11 @@ const _offlineRecap = runOfflineRecap();
 renderTicker();
 suppressBrokeCheck = !!_offlineRecap; // don't pop the broke sheet silently behind the recap modal
 render();
-suppressBrokeCheck = false;
-if(_offlineRecap){ showRecap(_offlineRecap); } else { startTutorial(); }
+// Only clear the suppression here if there's no recap to show — if there
+// is, it stays true (closeRecap() clears it) so the tick interval starting
+// below can't have a mid-tick checkBroke() pop the broke sheet while the
+// player is still reading the recap modal.
+if(_offlineRecap){ showRecap(_offlineRecap); } else { suppressBrokeCheck = false; startTutorial(); }
 const tickerWrapEl = document.getElementById('ticker-wrap');
 tickerWrapEl.addEventListener('touchstart', startTickerHold);
 tickerWrapEl.addEventListener('mousedown', startTickerHold);
