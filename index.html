@@ -79,6 +79,7 @@ h2:first-child{margin-top:0;}
 
 /* ===== Buttons ===== */
 .btn{display:inline-block; padding:9px 16px; border-radius:8px; border:1px solid var(--border-strong); font-size:13px; font-weight:500; color:var(--text); background:var(--surface2);}
+.btn:disabled{opacity:.4; pointer-events:none;}
 .btn:active{transform:scale(.97);}
 .btn-primary{background:var(--cash); color:#1a1305; border-color:var(--cash);}
 .btn-block{width:100%; text-align:center; padding:12px;}
@@ -482,7 +483,11 @@ const TUTORIAL_STEPS = [
   { id:'trade-amount', target:()=>document.querySelector('#tradeOverlay .amount-block'),
     title:'Enter how much to spend',
     body:"This is in dollars, not units — the game converts it to however many shares/coins/units that buys at the current price. Use the quick-amount buttons if you don't want to type.",
-    advance:'button' },
+    advance:'button',
+    // Next is disabled until there's actually an amount in the field —
+    // otherwise the very next step (Buy) has nothing to act on, and a
+    // buy/sell attempt with an empty field just bounces off a toast forever.
+    requireInput:'tradeAmount' },
   { id:'buy-sell', target:()=>document.querySelector('#tradeOverlay .btn-row'),
     title:'Buy locks in the trade',
     body:"Once you own something, this same sheet lets you sell it back whenever you want — the price moves in real time, so what you paid isn't what you'll get back.",
@@ -1728,6 +1733,8 @@ let tutorialActive = false;
 let tutorialIndex = -1;
 let tutorialSpotlightEl = null;
 let tutorialRepositionHandler = null;
+let tutorialInputGateHandler = null;
+let tutorialInputGateEl = null;
 
 function startTutorial(){
   if(state.tutorialComplete || state.tutorialAwaitingRecovery) return; // already toured, just waiting on the real crash/recovery now
@@ -1832,6 +1839,8 @@ function showTutorialStep(step, target){
   if(step.advance === 'button'){
     btn.style.display = '';
     btn.textContent = (tutorialIndex === TUTORIAL_STEPS.length-1) ? 'Got it' : 'Next';
+    if(step.requireInput) attachInputGate(step.requireInput, btn);
+    else btn.disabled = false;
   } else {
     btn.style.display = 'none'; // this step only advances once the player does the real thing
   }
@@ -1854,6 +1863,7 @@ function showTutorialStep(step, target){
 function clearSpotlight(){
   if(tutorialSpotlightEl){ tutorialSpotlightEl.classList.remove('tut-spot'); tutorialSpotlightEl = null; }
   detachRepositionListeners();
+  detachInputGate();
 }
 
 function attachRepositionListeners(target, tip){
@@ -1868,6 +1878,26 @@ function detachRepositionListeners(){
     window.removeEventListener('resize', tutorialRepositionHandler);
     tutorialRepositionHandler = null;
   }
+}
+
+// Keeps the tooltip's own "Next" disabled until the named input actually has
+// a value, so a step like trade-amount can't be clicked through empty and
+// leave the following step with nothing to act on.
+function attachInputGate(inputId, btn){
+  const el = document.getElementById(inputId);
+  const check = () => { btn.disabled = !(parseFloat(el.value) > 0); };
+  check();
+  tutorialInputGateEl = el;
+  tutorialInputGateHandler = check;
+  el.addEventListener('input', check);
+}
+function detachInputGate(){
+  if(tutorialInputGateEl && tutorialInputGateHandler){
+    tutorialInputGateEl.removeEventListener('input', tutorialInputGateHandler);
+  }
+  tutorialInputGateEl = null;
+  tutorialInputGateHandler = null;
+  document.getElementById('tutTooltipBtn').disabled = false;
 }
 
 function positionTooltip(target, tip){
