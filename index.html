@@ -153,6 +153,29 @@ h2:first-child{margin-top:0;}
 .tut-skip-link{font-size:11px; color:var(--text-faint); text-decoration:underline;}
 .tut-tooltip-row .btn{padding:8px 18px;}
 
+/* ===== Opening sequence ("Rock Bottom"), see OPENING_SEQUENCE_SPEC.md ===== */
+.intro-overlay{position:fixed; inset:0; z-index:10001; background:#000; display:none; align-items:center; justify-content:center; overflow:hidden;}
+.intro-overlay.show{display:flex;}
+.intro-skip{position:absolute; top:calc(16px + env(safe-area-inset-top)); right:16px; font-size:11px; color:var(--text-faint); text-decoration:underline; padding:8px; z-index:2;}
+.intro-wash{position:absolute; inset:0; opacity:0; transition:opacity .6s ease; pointer-events:none;}
+.intro-overlay[data-visual="casino-floor"] .intro-wash{opacity:1; background:radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--down) 24%, transparent), transparent 60%), radial-gradient(circle at 50% 75%, color-mix(in srgb, var(--cash) 16%, transparent), transparent 65%);}
+.intro-overlay[data-visual="terminal-boot"] .intro-wash{opacity:1; background:#000;}
+.intro-overlay[data-visual="terminal-boot"] .intro-wash::before{content:''; position:absolute; inset:0; background:repeating-linear-gradient(to bottom, rgba(255,255,255,.04) 0px, rgba(255,255,255,.04) 1px, transparent 1px, transparent 3px); mix-blend-mode:overlay;}
+.intro-content{position:relative; z-index:1; max-width:340px; padding:0 28px; text-align:center;}
+.intro-wordmark{font-family:var(--font-mono); font-size:19px; font-weight:700; letter-spacing:.02em; color:#3dff6e; text-shadow:0 0 8px rgba(61,255,110,.55); margin-bottom:16px; opacity:0; transition:opacity .3s ease;}
+.intro-wordmark.in{opacity:1; animation:introGlitch .3s steps(2) 2;}
+@keyframes introGlitch{ 0%{transform:translate(0);} 25%{transform:translate(-2px,1px);} 50%{transform:translate(2px,-1px);} 75%{transform:translate(-1px,0);} 100%{transform:translate(0);} }
+.intro-lines{display:flex; flex-direction:column; gap:10px;}
+.intro-line{opacity:0; transform:translateY(10px); transition:opacity .4s ease, transform .4s ease; font-size:17px; line-height:1.5; color:var(--text);}
+.intro-line.in{opacity:1; transform:translateY(0);}
+.intro-overlay[data-visual="receipt"] .intro-lines{gap:4px;}
+.intro-overlay[data-visual="receipt"] .intro-line{font-family:var(--font-mono); font-size:12px; color:var(--text-dim); letter-spacing:.02em;}
+.intro-overlay[data-visual="terminal-boot"] .intro-content{text-align:left; max-width:300px;}
+.intro-overlay[data-visual="terminal-boot"] .intro-line{font-family:var(--font-mono); font-size:13.5px; color:#3dff6e; text-shadow:0 0 6px rgba(61,255,110,.45);}
+.intro-cursor{display:inline-block; width:.5em; height:1em; background:#3dff6e; margin-left:2px; vertical-align:text-bottom; animation:introBlink 1s steps(1) infinite;}
+@keyframes introBlink{ 50%{opacity:0;} }
+
+
 /* ===== Crash popup ===== */
 .crash-icon{font-size:30px; text-align:center; margin-bottom:8px;}
 
@@ -220,6 +243,15 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
 </head>
 <body>
 
+<div class="intro-overlay" id="introOverlay" onclick="handleIntroTap(event)">
+  <button class="intro-skip" onclick="event.stopPropagation(); skipIntro();">Skip intro</button>
+  <div class="intro-wash"></div>
+  <div class="intro-content">
+    <div class="intro-wordmark" id="introWordmark"></div>
+    <div class="intro-lines" id="introLines"></div>
+  </div>
+</div>
+
 <div id="ticker-wrap"><div id="ticker"></div></div>
 
 <div class="live-event-banner" id="liveEventBanner">
@@ -273,7 +305,7 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
   <div class="view" id="view-log">
     <h2>Recent activity</h2>
     <div id="logList"></div>
-    <footer class="reset-row"><button onclick="replayTutorial()">Replay tutorial</button> · <button onclick="resetGame()">Reset save data</button></footer>
+    <footer class="reset-row"><button onclick="replayIntro()">Replay intro</button> · <button onclick="replayTutorial()">Replay tutorial</button> · <button onclick="resetGame()">Reset save data</button></footer>
     <div id="debugRow"><button onclick="debugSimulateOffline()">Debug: simulate 1hr offline</button><button onclick="debugTriggerFlashCrash()">Debug: trigger flash crash</button></div>
   </div>
 </main>
@@ -609,6 +641,7 @@ function defaultState(){
     crashWipeCashPending: false,
     firstPlayAt: Date.now(),
     onboardingBoostEligible: true,
+    introSeen: false,
     tutorialComplete: false,
     tutorialAwaitingRecovery: false,
     explainersSeen: [],
@@ -676,6 +709,9 @@ function loadState(){
   // Returning players from before the tutorial existed already know how to
   // play — don't surprise them with it, and don't re-explain tiers they've
   // already got unlocked.
+  // Same reasoning as tutorialComplete just above — a save from before the
+  // opening sequence existed shouldn't suddenly get it forced on next open.
+  if(state.introSeen === undefined) state.introSeen = true;
   if(state.tutorialComplete === undefined) state.tutorialComplete = true;
   if(state.tutorialAwaitingRecovery === undefined) state.tutorialAwaitingRecovery = false;
   if(state.explainersSeen === undefined){
@@ -966,7 +1002,7 @@ let liveEvent = null; // {assetId, headline, remainingTicks, perTickMult, startP
 let nextLiveEventAt = Date.now() + randBetween(LIVE_EVENT_MIN_GAP_MS, LIVE_EVENT_MAX_GAP_MS);
 
 function maybeTriggerLiveEvent(){
-  if(liveEvent || tutorialActive || state.tutorialAwaitingRecovery) return; // one at a time, and don't layer this on the onboarding focus
+  if(liveEvent || tutorialActive || state.tutorialAwaitingRecovery || introActive) return; // one at a time, and don't layer this on the onboarding focus
   if(document.hidden) return; // RETENTION_SPEC.md: only trigger during active play, not while backgrounded — the tick interval keeps running in a backgrounded tab, but a decision banner nobody can see isn't a decision
   if(document.getElementById('brokeOverlay').classList.contains('show')) return;
   if(state.crashTicksLeft > 0 || (state.cryptoLaunchQueue && state.cryptoLaunchQueue.length)) return; // don't compete with the scripted crash for attention
@@ -1111,7 +1147,7 @@ function maybeRotateHotAsset(){
   if(state.hotAssetId && now > state.hotAssetUntil){
     state.hotAssetId = null; // cooldown clearing is safe to run unconditionally, unlike starting a new one below
   }
-  if(tutorialActive || state.tutorialAwaitingRecovery) return; // don't compete with the onboarding focus
+  if(tutorialActive || state.tutorialAwaitingRecovery || introActive) return; // don't compete with the onboarding focus
   if(state.crashTicksLeft > 0 || (state.cryptoLaunchQueue && state.cryptoLaunchQueue.length)) return; // don't compete with the scripted crash
   if(state.flashCrash) return; // "this asset is heating up" reads as nonsense mid-selloff
   if(document.hidden) return;
@@ -1147,7 +1183,7 @@ function maybeTriggerFlashCrash(){
   if(state.flashCrashActiveMs < state.flashCrashTargetMs) return;
   if(Date.now() - bootedAt < FLASH_CRASH_BOOT_GRACE_MS) return; // don't ambush someone who just opened the app after a long absence
   if(document.hidden) return;                        // a warning nobody can see isn't a warning
-  if(tutorialActive || state.tutorialAwaitingRecovery) return;
+  if(tutorialActive || state.tutorialAwaitingRecovery || introActive) return;
   if(state.crashTicksLeft > 0 || (state.cryptoLaunchQueue && state.cryptoLaunchQueue.length)) return;
   if(document.getElementById('brokeOverlay').classList.contains('show')) return;
   if(netWorth() < FLASH_CRASH_MIN_NET_WORTH){        // too fragile — reschedule instead of burying them
@@ -1958,6 +1994,194 @@ function finishMinigame(payout){
   }, 1400);
 }
 
+/* ---------- opening sequence ("Rock Bottom"), see OPENING_SEQUENCE_SPEC.md ---------- */
+const STORY_BEATS = [
+  { id:'beat-1', visual:'blackout',
+    lines:["You've lost at three casinos this year.", "Tonight makes it four."],
+    holdMs:2400 },
+  { id:'beat-2', visual:'casino-floor',
+    lines:["Pit boss Gary has personally walked you out twice.", "Tonight he didn't even do the polite hand-on-the-shoulder thing."],
+    holdMs:2600 },
+  { id:'beat-3', visual:'casino-floor',
+    lines:["He just pointed. From across the room. Security handled the rest."],
+    holdMs:2000 },
+  { id:'beat-4', visual:'receipt',
+    lines:["Lifetime casino losses: unspeakable.", "Lifetime casino winnings: a $40 buffet comp, once, in 2019."],
+    holdMs:2800 },
+  { id:'beat-5', visual:'blackout',
+    lines:["You called your brother. He sent you to voicemail. On purpose. You could hear him do it."],
+    holdMs:2600 },
+  { id:'beat-6', visual:'blackout',
+    lines:["You applied at the airport fry stand. They said you seemed 'emotionally unavailable for fries.'", "You didn't fight it."],
+    holdMs:2800 },
+  { id:'beat-7', visual:'terminal-boot', typewriter:true,
+    lines:["> searching for anyone who'll give you money", "> 1 result found", "> loan shark located. terms: catastrophic.", "> connecting to DEGENERATE HOLDINGS terminal..."],
+    holdMs:3400 },
+  { id:'beat-8', visual:'terminal-boot', logoReveal:true,
+    lines:["Balance: $1,000", "No casino will take your action. This machine will take anything."],
+    holdMs:3000 },
+  { id:'beat-9', visual:'terminal-boot', final:true,
+    lines:["This is rock bottom. Try not to dig."],
+    holdMs:2200 },
+];
+const INTRO_TYPE_MS = 30; // per-character delay for beat-7's typewriter
+const INTRO_LINE_STAGGER_MS = 200; // fade-up delay between lines within a non-typewriter beat
+const INTRO_TYPE_END_PAUSE_MS = 900; // beat holds this long after typing finishes, before auto-advancing
+
+let introActive = false;
+let introIndex = -1;
+let introTimer = null;
+let introTypeTimer = null;
+let introTyping = false; // true only while beat-7's typewriter is actively revealing a line
+let introOnComplete = null;
+let introTypeBeat = null;
+let introTypeLineEls = [];
+let introTypeLineIdx = 0;
+let introTypeCharIdx = 0;
+
+function startIntro(onComplete){
+  introActive = true;
+  introIndex = -1;
+  introOnComplete = onComplete;
+  suppressBrokeCheck = true; // don't let a mid-sequence tick pop the broke sheet from behind the full-screen intro — caller clears this once it's done
+  document.getElementById('introOverlay').classList.add('show');
+  showIntroBeat(0);
+}
+
+function showIntroBeat(i){
+  clearTimeout(introTimer);
+  clearInterval(introTypeTimer);
+  introTyping = false;
+  introIndex = i;
+  const beat = STORY_BEATS[i];
+  const overlay = document.getElementById('introOverlay');
+  overlay.dataset.visual = beat.visual;
+
+  const linesEl = document.getElementById('introLines');
+  linesEl.innerHTML = '';
+
+  // The wordmark is revealed once (beat-8) and stays up through any later
+  // terminal-boot beat (beat-9) since they read as the same continuous
+  // terminal screen — only clear it when we leave terminal-boot entirely.
+  // Guarded against replaying mid-session (see replayIntro): explicitly
+  // reset-then-reflow-then-add so the glitch animation reliably restarts.
+  const wordmarkEl = document.getElementById('introWordmark');
+  if(beat.visual !== 'terminal-boot'){
+    wordmarkEl.classList.remove('in');
+    wordmarkEl.textContent = '';
+  } else if(beat.logoReveal){
+    wordmarkEl.textContent = 'DEGENERATE HOLDINGS';
+    wordmarkEl.classList.remove('in');
+    void wordmarkEl.offsetWidth;
+    requestAnimationFrame(()=>wordmarkEl.classList.add('in'));
+  }
+
+  if(beat.typewriter){
+    startTypewriterBeat(beat);
+  } else {
+    beat.lines.forEach((text, li)=>{
+      const div = document.createElement('div');
+      div.className = 'intro-line';
+      div.textContent = text;
+      linesEl.appendChild(div);
+      setTimeout(()=>div.classList.add('in'), li*INTRO_LINE_STAGGER_MS);
+    });
+    introTimer = setTimeout(advanceIntroBeat, beat.holdMs);
+  }
+}
+
+function startTypewriterBeat(beat){
+  const linesEl = document.getElementById('introLines');
+  introTypeBeat = beat;
+  introTypeLineIdx = 0;
+  introTypeCharIdx = 0;
+  introTypeLineEls = beat.lines.map(()=>{
+    const div = document.createElement('div');
+    div.className = 'intro-line in';
+    linesEl.appendChild(div);
+    return div;
+  });
+  introTyping = true;
+  introTypeTimer = setInterval(typewriterStep, INTRO_TYPE_MS);
+}
+
+function typewriterStep(){
+  introTypeCharIdx++;
+  renderTypeLine();
+  if(introTypeCharIdx >= introTypeBeat.lines[introTypeLineIdx].length) finishTypeLine();
+}
+
+function renderTypeLine(){
+  const text = introTypeBeat.lines[introTypeLineIdx];
+  introTypeLineEls[introTypeLineIdx].innerHTML = escapeIntroText(text.slice(0, introTypeCharIdx)) + '<span class="intro-cursor"></span>';
+}
+
+function finishTypeLine(){
+  introTypeLineEls[introTypeLineIdx].textContent = introTypeBeat.lines[introTypeLineIdx];
+  introTypeLineIdx++;
+  introTypeCharIdx = 0;
+  if(introTypeLineIdx >= introTypeBeat.lines.length){
+    clearInterval(introTypeTimer);
+    introTyping = false;
+    introTimer = setTimeout(advanceIntroBeat, INTRO_TYPE_END_PAUSE_MS);
+  }
+}
+
+// Tap-to-complete (beat-7 only): finishes whichever line is mid-type instead
+// of skipping the whole beat, then resumes typing whatever line is next —
+// keeps the line's content readable rather than just vanishing it.
+function completeCurrentTypeLine(){
+  clearInterval(introTypeTimer);
+  introTypeCharIdx = introTypeBeat.lines[introTypeLineIdx].length;
+  finishTypeLine();
+  if(introTyping) introTypeTimer = setInterval(typewriterStep, INTRO_TYPE_MS);
+}
+
+function escapeIntroText(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function handleIntroTap(e){
+  if(e.target.closest('.intro-skip')) return; // has its own handler; avoid double-advancing
+  if(introTyping) completeCurrentTypeLine();
+  else advanceIntroBeat();
+}
+
+function advanceIntroBeat(){
+  clearTimeout(introTimer);
+  clearInterval(introTypeTimer);
+  introTyping = false;
+  const next = introIndex + 1;
+  if(next >= STORY_BEATS.length) finishIntro();
+  else showIntroBeat(next);
+}
+
+function finishIntro(){
+  clearTimeout(introTimer);
+  clearInterval(introTypeTimer);
+  introActive = false;
+  introTyping = false;
+  document.getElementById('introOverlay').classList.remove('show');
+  state.introSeen = true;
+  saveState();
+  const cb = introOnComplete;
+  introOnComplete = null;
+  if(cb) cb(); // caller (boot wiring / replayIntro) is responsible for clearing suppressBrokeCheck
+}
+
+function skipIntro(){
+  finishIntro();
+}
+
+function replayIntro(){
+  state.introSeen = false;
+  state.tutorialComplete = false;
+  state.tutorialAwaitingRecovery = false;
+  saveState();
+  switchView('portfolio');
+  startIntro(()=>{ suppressBrokeCheck = false; startTutorial(); });
+}
+
 /* ---------- tutorial (spotlight engine, see TUTORIAL_SPEC.md) ---------- */
 let tutorialActive = false;
 let tutorialIndex = -1;
@@ -2204,7 +2428,13 @@ render();
 // is, it stays true (closeRecap() clears it) so the tick interval starting
 // below can't have a mid-tick checkBroke() pop the broke sheet while the
 // player is still reading the recap modal.
-if(_offlineRecap){ showRecap(_offlineRecap); } else { suppressBrokeCheck = false; startTutorial(); }
+function proceedPastIntro(){
+  if(_offlineRecap){ showRecap(_offlineRecap); } else { suppressBrokeCheck = false; startTutorial(); }
+}
+// A brand-new save never has a recap waiting (lastSeenAt was just set to
+// now), so this and the recap path never actually compete in practice —
+// the intro only ever plays automatically for a save that's never seen it.
+if(!state.introSeen){ startIntro(proceedPastIntro); } else { proceedPastIntro(); }
 if(state.flashCrash) renderFlashCrashBanner(); // a crash interrupted by a close/reload resumes, so show its banner again
 const tickerWrapEl = document.getElementById('ticker-wrap');
 tickerWrapEl.addEventListener('touchstart', startTickerHold);
