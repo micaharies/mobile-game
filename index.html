@@ -1023,6 +1023,7 @@ function resolveDuePredictions(){
     const freshPrice = randBetween(0.4, 0.6);
     state.prices[a.id] = freshPrice;
     state.startPrices[a.id] = freshPrice;
+    sessionStartPrices[a.id] = freshPrice; // otherwise the Markets list would show a fake ~huge swing off the pre-resolution price
     state.predictionResolveAt[a.id] = now + randBetween(PREDICTION_RESOLVE_MIN_S, PREDICTION_RESOLVE_MAX_S)*1000;
   });
 }
@@ -1277,6 +1278,20 @@ function priceChangePct(a){
   return ((state.prices[a.id]-start)/start)*100;
 }
 
+// Ephemeral (not persisted) baseline snapshotted once at boot — the Markets
+// list shows change since you opened the app *this time*, so you can spot
+// what's actually moving right now instead of the all-time drift shown in
+// Portfolio (priceChangePct, backed by state.startPrices).
+let sessionStartPrices = {};
+function initSessionStartPrices(){
+  allAssets().forEach(a=>{ sessionStartPrices[a.id] = state.prices[a.id]; });
+}
+function sessionChangePct(a){
+  const start = sessionStartPrices[a.id];
+  if(start === undefined) return 0;
+  return ((state.prices[a.id]-start)/start)*100;
+}
+
 function renderMarkets(){
   const unlocked = unlockedTierIds();
   const risky = document.getElementById('riskyList');
@@ -1288,7 +1303,7 @@ function renderMarkets(){
   ASSET_DEFS.forEach(a=>{
     const isLocked = !unlocked.includes(a.tier);
     const price = state.prices[a.id];
-    const chg = priceChangePct(a);
+    const chg = sessionChangePct(a);
     const tierInfo = TIERS.find(t=>t.id===a.tier);
     if(a.tier !== lastTier){
       lastTier = a.tier;
@@ -1322,7 +1337,7 @@ function renderMarkets(){
 
   SAFE_DEFS.forEach(a=>{
     const price = state.prices[a.id];
-    const chg = priceChangePct(a);
+    const chg = sessionChangePct(a);
     const flashClass = priceFlashClass(a.id, price);
     safe.innerHTML += `
       <div class="asset ${flashClass}" onclick="openTrade('${a.id}')">
@@ -1706,6 +1721,7 @@ function resetRiskyPrices(){
   ASSET_DEFS.forEach(a=>{
     state.prices[a.id] = a.price;
     state.startPrices[a.id] = a.price;
+    sessionStartPrices[a.id] = a.price;
   });
 }
 
@@ -1958,6 +1974,7 @@ function showToast(msg){
 loadState();
 initDebugMode();
 const _offlineRecap = runOfflineRecap();
+initSessionStartPrices(); // after the offline recap so "this session" starts from what you're about to see, not from before you were away
 renderTicker();
 suppressBrokeCheck = !!_offlineRecap; // don't pop the broke sheet silently behind the recap modal
 render();
