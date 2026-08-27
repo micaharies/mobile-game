@@ -487,6 +487,7 @@ const ASSET_DEFS = [
   {id:'ncla', name:'NCLA', sub:'Cruise line stock', tier:'stocks', type:'stock', price:22, vol:0.012, drift:0, icon:'N', color:'var(--safe)'},
   {id:'doge', name:'DOGO', sub:'Meme crypto', tier:'crypto', type:'crypto', price:0.6, vol:0.05, drift:-0.0002, icon:'D', color:'var(--cash)'},
   {id:'btcx', name:'BTCX', sub:'Flagship crypto', tier:'crypto', type:'crypto', price:420, vol:0.03, drift:0.0002, icon:'B', color:'var(--cash)'},
+  {id:'rugx', name:'RUGX', sub:'EXTRA RISKY · unhinged meme coin, no floor no ceiling', tier:'crypto', type:'crypto', price:150, vol:0.14, drift:0, meanReversion:0.02, meanPrice:150, shockMult:12, icon:'☠', color:'var(--down)'},
   {id:'rain', name:'Rain tomorrow', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.5, vol:0.04, drift:0, icon:'?', color:'var(--down)'},
   {id:'elec', name:'Mayor wins reelection', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.62, vol:0.035, drift:0, icon:'?', color:'var(--down)'},
   {id:'eurusd', name:'EUR/USD', sub:'Forex pair', tier:'forex', type:'forex', price:1.08, vol:0.004, drift:0, icon:'€', color:'var(--text-dim)'},
@@ -737,8 +738,15 @@ function tickPrices(){
     if(a.id === scriptedAssetThisTick) return; // scripted event owns this tick's move
     if(liveEvent && a.id === liveEvent.assetId) return; // live event owns this tick's move
     const effVol = (a.id === state.hotAssetId) ? a.vol * HOT_VOL_MULT : a.vol;
-    const shock = (Math.random() < effVol * 0.15) ? (Math.random()<0.5?-1:1) * effVol * 6 : 0;
-    const change = a.drift + (Math.random()*2-1) * effVol + shock;
+    // Optional per-asset overrides (RUGX only, currently) — meanReversion
+    // pulls the price back toward meanPrice in log-space so an extreme coin
+    // keeps oscillating between real highs and lows instead of a symmetric
+    // random walk's usual fate of wandering into the price floor and dying
+    // there for good. shockMult widens its shock spikes beyond the default.
+    const revert = a.meanReversion ? a.meanReversion * Math.log(a.meanPrice / state.prices[a.id]) : 0;
+    const shockMult = a.shockMult || 6;
+    const shock = (Math.random() < effVol * 0.15) ? (Math.random()<0.5?-1:1) * effVol * shockMult : 0;
+    const change = a.drift + revert + (Math.random()*2-1) * effVol + shock;
     let p = state.prices[a.id] * (1 + change);
     if(a.type === 'prediction') p = Math.min(0.97, Math.max(0.03, p));
     else p = Math.max(0.01, p);
@@ -951,6 +959,7 @@ const MARKET_EVENT_TEMPLATES = [
   {assetId:'ncla', headline:'NCLA options activity spikes — someone knows something'},
   {assetId:'doge', headline:'Rumor: DOGO about to pump'},
   {assetId:'btcx', headline:'Whale wallet spotted accumulating BTCX'},
+  {assetId:'rugx', headline:'RUGX going parabolic — influencers are all in'},
   {assetId:'eurusd', headline:'Central bank chatter moves EUR/USD desks'},
 ];
 let liveEvent = null; // {assetId, headline, remainingTicks, perTickMult, startPrice, choice}
