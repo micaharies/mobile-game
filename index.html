@@ -428,6 +428,15 @@ const RETIRE_TIERS = [
 // --- RETENTION_SPEC.md tuning constants ---
 const OFFLINE_RECAP_THRESHOLD_MS = 60 * 1000; // shorter absences aren't worth interrupting for
 const OFFLINE_RECAP_MAX_TICKS = 500; // full-fidelity tick cap; anything beyond this uses a one-shot approximation
+// The one-shot approximation below scales drift *linearly* with tick count,
+// and even proper compounding of a small per-tick drift still blows up over
+// the tens of thousands of ticks a multi-day absence represents — a "slow
+// and steady" safe haven left offline for 36h was clocking +1000%+. Cap the
+// total swing any single asset can post from being away, scaled by its own
+// volatility so boring assets stay boring and crypto can still swing hard,
+// just not infinitely.
+const OFFLINE_RECAP_MAX_SIGMA_MULT = 25;
+const OFFLINE_RECAP_MAX_SWING = 2.5; // absolute ceiling regardless of vol
 const LIVE_EVENT_WINDOW_S = 45;
 const LIVE_EVENT_MIN_GAP_MS = 2 * 60 * 1000;
 const LIVE_EVENT_MAX_GAP_MS = 4 * 60 * 1000;
@@ -839,6 +848,15 @@ function runOfflineRecap(){
     });
     if(state.debt > 0) state.debt = state.debt * Math.pow(1 + state.debtRate/12000, remainingTicks);
   }
+
+  // Clamp total offline movement per asset, scaled by its own volatility —
+  // this is the actual fix for runaway multi-day drift, independent of how
+  // many ticks were simulated above.
+  allAssets().forEach(a=>{
+    const before = pricesBefore[a.id];
+    const maxSwing = Math.min(OFFLINE_RECAP_MAX_SWING, a.vol * OFFLINE_RECAP_MAX_SIGMA_MULT);
+    state.prices[a.id] = Math.min(before * (1 + maxSwing), Math.max(before * (1 - maxSwing), state.prices[a.id]));
+  });
 
   const nwAfter = netWorth();
   let biggestMover = null, biggestPct = 0;
@@ -1950,7 +1968,14 @@ function refreshTutorialSpotlight(){
     tutorialSpotlightEl = target;
     if(target) target.classList.add('tut-spot');
   }
-  if(target) positionTooltip(target, tip);
+  // A step's target can still exist in the DOM but not actually be on screen
+  // right now — e.g. the player backed out of the trade sheet without buying
+  // while on a step that's waiting on it. Pinning the tooltip to a hidden
+  // element's (0,0) rect snaps it into the corner instead of leaving it
+  // sensibly centered, so treat "present but invisible" the same as "no
+  // target" until it's back.
+  const visible = target && target.offsetWidth > 0 && target.offsetHeight > 0;
+  if(visible) positionTooltip(target, tip);
   else positionTooltipCentered(tip);
 }
 
