@@ -194,8 +194,12 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
 .asset.flash-up{animation:flashUp .5s ease-out;}
 .asset.flash-down{animation:flashDown .5s ease-out;}
 #tradeOverlay .sheet{position:relative;}
-.trade-confirm{position:absolute; inset:0; display:none; align-items:center; justify-content:center; font-size:56px; color:var(--up); background:color-mix(in srgb, var(--surface1) 88%, transparent); border-radius:18px; z-index:5;}
+.trade-confirm{position:absolute; inset:0; display:none; align-items:center; justify-content:center; font-size:56px; color:var(--up); background:color-mix(in srgb, var(--surface1) 88%, transparent); border-radius:18px; z-index:5; overflow:hidden;}
 .trade-confirm.show{display:flex; animation:tradeConfirmPop .45s ease-out;}
+/* On a short viewport the sheet itself can scroll (e.g. the prediction Yes/No
+   toggle pushes content past 88vh) — the confirm overlay should read as a
+   clean full-bleed flash, not have the sheet's scrollbar poking through it. */
+#tradeOverlay .sheet:has(.trade-confirm.show){overflow:hidden;}
 @keyframes tradeConfirmPop{ 0%{opacity:0; transform:scale(.6);} 40%{opacity:1; transform:scale(1.08);} 100%{opacity:1; transform:scale(1);} }
 @keyframes payoutPop{ 0%{opacity:0; transform:scale(.5);} 60%{opacity:1; transform:scale(1.15);} 100%{opacity:1; transform:scale(1);} }
 .mg-payout{animation:payoutPop .4s ease-out;}
@@ -1741,13 +1745,24 @@ function replayTutorial(){
 }
 
 // Called by the real UI actions (switchView/openTrade/doTrade) an
-// 'interaction' step is waiting on — advances only if that step is the one
-// currently active, so taps elsewhere in the app are harmless no-ops.
+// 'interaction' step is waiting on. A real action can land before the player
+// clicks through an intermediate 'button'-advance step first — e.g. typing
+// an amount and tapping Buy directly instead of hitting that step's own
+// "Next" — so this walks forward over any skippable button steps to find
+// the interaction step actually waiting on this event, rather than only
+// checking whatever step happens to be current. It stops at the first
+// interaction step that doesn't match, so out-of-order events (taps
+// elsewhere in the app) still can't skip ahead of a real gate.
 function tutorialOnEvent(eventName){
   if(!tutorialActive) return;
-  const step = TUTORIAL_STEPS[tutorialIndex];
-  if(step && step.advance === 'interaction' && step.event === eventName){
-    advanceTutorial();
+  for(let i = tutorialIndex; i < TUTORIAL_STEPS.length; i++){
+    const step = TUTORIAL_STEPS[i];
+    if(step.advance === 'interaction'){
+      if(step.event !== eventName) return;
+      tutorialIndex = i;
+      advanceTutorial();
+      return;
+    }
   }
 }
 
