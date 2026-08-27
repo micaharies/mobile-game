@@ -1,0 +1,8 @@
+:80 {
+    root * /srv
+    file_server
+    encode gzip
+
+    # allow the PWA manifest to be fetched without caching issues while iterating
+    header /manifest.json Cache-Control "no-cache"
+}

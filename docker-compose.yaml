@@ -1,0 +1,10 @@
+services:
+  degen-web:
+    image: caddy:2-alpine
+    container_name: degen-web
+    restart: unless-stopped
+    ports:
+      - "2016:80"
+    volumes:
+      - /dockerData/degen/site:/srv
+      - /dockerData/degen/Caddyfile:/etc/caddy/Caddyfile:ro
