@@ -179,6 +179,14 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
 .lev-row .lev-ignore{color:var(--text-faint);}
 .lev-timer{font-size:10px; color:var(--text-faint); font-family:var(--font-mono); text-align:right;}
 
+/* Flash crash banner — same shelf as the rumor banner (they never co-exist). */
+.flash-crash-banner{position:fixed; top:38px; left:50%; transform:translateX(-50%) translateY(-8px); width:calc(100% - 24px); max-width:456px; background:var(--surface1); border:1px solid var(--border-strong); border-left:3px solid var(--down); border-radius:12px; padding:10px 14px; z-index:46; opacity:0; pointer-events:none; transition:opacity .25s, transform .25s;}
+.flash-crash-banner.show{opacity:1; transform:translateX(-50%) translateY(0);}
+.flash-crash-banner.is-slide{animation:fcbPulse 1s ease-in-out infinite;}
+@keyframes fcbPulse{ 0%,100%{border-left-color:var(--down);} 50%{border-left-color:color-mix(in srgb, var(--down) 35%, var(--surface1));} }
+.fcb-headline{font-size:12.5px; font-weight:600;}
+.fcb-sub{font-size:10px; color:var(--text-faint); font-family:var(--font-mono); margin-top:3px;}
+
 .asset.hot{border-color:var(--cash); box-shadow:0 0 0 1px var(--cash), 0 0 12px color-mix(in srgb, var(--cash) 45%, transparent);}
 .hot-badge{font-size:9px; color:var(--cash); font-weight:700; margin-left:2px;}
 
@@ -224,6 +232,11 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
   <div class="lev-timer" id="levTimer"></div>
 </div>
 
+<div class="flash-crash-banner" id="flashCrashBanner">
+  <div class="fcb-headline"></div>
+  <div class="fcb-sub"></div>
+</div>
+
 <header>
   <div class="networth-row">
     <div>
@@ -261,7 +274,7 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
     <h2>Recent activity</h2>
     <div id="logList"></div>
     <footer class="reset-row"><button onclick="replayTutorial()">Replay tutorial</button> · <button onclick="resetGame()">Reset save data</button></footer>
-    <div id="debugRow"><button onclick="debugSimulateOffline()">Debug: simulate 1hr offline</button></div>
+    <div id="debugRow"><button onclick="debugSimulateOffline()">Debug: simulate 1hr offline</button><button onclick="debugTriggerFlashCrash()">Debug: trigger flash crash</button></div>
   </div>
 </main>
 
@@ -444,6 +457,27 @@ const HOT_ASSET_DURATION_MS = 90 * 1000;
 const HOT_VOL_MULT = 2.5;
 const HOT_ASSET_MIN_GAP_MS = 2.5 * 60 * 1000;
 const HOT_ASSET_MAX_GAP_MS = 4 * 60 * 1000;
+// --- Flash crash (periodic market-wide selloff) ---
+// Designed to be dramatic without feeling like a mugging, so it runs in three
+// phases: a WARNING window you can actually act on (sell into safe havens or
+// cash), the SLIDE itself, then a partial REBOUND so it reads as a dip to buy
+// rather than permanent confiscation. Safe havens are exempt throughout —
+// that's the counterplay, and it's what makes parking money there matter.
+// Scheduled off ACTIVE play time (ticks while the tab is actually visible),
+// not wall-clock time — a wall-clock gap would mean a short-burst player who
+// never leaves the tab open for hours could go their whole playtime without
+// ever hitting one, while someone who idles with the tab open eats it on
+// schedule regardless of whether they're actually engaged. Everyone should
+// have to face this sooner or later, on comparable footing.
+const FLASH_CRASH_MIN_ACTIVE_MS = 15 * 60 * 1000;
+const FLASH_CRASH_MAX_ACTIVE_MS = 35 * 60 * 1000;
+const FLASH_CRASH_WARNING_S = 24;   // time to react before the first red tick
+const FLASH_CRASH_SLIDE_S = 15;     // how long the drop takes to play out
+const FLASH_CRASH_REBOUND_S = 30;   // partial recovery after the bottom
+const FLASH_CRASH_DEPTH = 0.25;     // risky assets shed this much at the bottom
+const FLASH_CRASH_REBOUND_FRAC = 0.4; // fraction of the drop clawed back (net ~-15%)
+const FLASH_CRASH_BOOT_GRACE_MS = 90 * 1000; // never crash someone the instant they open the app
+const FLASH_CRASH_MIN_NET_WORTH = 400; // below this, skip it — kicking a broke player isn't drama, it's a death spiral
 const PREDICTION_RESOLVE_MIN_S = 60;
 const PREDICTION_RESOLVE_MAX_S = 90;
 
@@ -590,6 +624,9 @@ function defaultState(){
     predictionResolveAt: {},
     hotAssetId: null,
     hotAssetUntil: 0,
+    flashCrash: null,
+    flashCrashActiveMs: 0,
+    flashCrashTargetMs: randBetween(FLASH_CRASH_MIN_ACTIVE_MS, FLASH_CRASH_MAX_ACTIVE_MS),
     debugMode: false,
   };
 }
@@ -659,6 +696,11 @@ function loadState(){
     }
   });
   if(state.hotAssetId === undefined){ state.hotAssetId = null; state.hotAssetUntil = 0; }
+  if(state.flashCrash === undefined) state.flashCrash = null;
+  if(state.flashCrashActiveMs === undefined) state.flashCrashActiveMs = 0;
+  if(state.flashCrashTargetMs === undefined){
+    state.flashCrashTargetMs = randBetween(FLASH_CRASH_MIN_ACTIVE_MS, FLASH_CRASH_MAX_ACTIVE_MS);
+  }
   if(state.debugMode === undefined) state.debugMode = false;
 }
 
@@ -678,6 +720,10 @@ function tickPrices(){
   let scriptedAssetThisTick = null; // an asset id, or 'ALL' for a market-wide crash step
   if((state.cryptoLaunchQueue && state.cryptoLaunchQueue.length) || state.crashTicksLeft > 0){
     scriptedAssetThisTick = applyCryptoLaunchStep();
+  } else if(state.flashCrash){
+    // Deliberately below the scripted crypto crash — that one is the tutorial's
+    // set piece and should never be diluted by a flash crash on top of it.
+    scriptedAssetThisTick = applyFlashCrashTick();
   }
   if(liveEvent){
     // The live event owns this asset's price for the duration of its window —
@@ -709,6 +755,8 @@ function tickPrices(){
   resolveDuePredictions();
   maybeRotateHotAsset();
   maybeTriggerLiveEvent();
+  if(!document.hidden) state.flashCrashActiveMs += TICK_MS; // only counts time actually spent looking at the app
+  maybeTriggerFlashCrash();
   saveState();
   render();
 }
@@ -913,6 +961,7 @@ function maybeTriggerLiveEvent(){
   if(document.hidden) return; // RETENTION_SPEC.md: only trigger during active play, not while backgrounded — the tick interval keeps running in a backgrounded tab, but a decision banner nobody can see isn't a decision
   if(document.getElementById('brokeOverlay').classList.contains('show')) return;
   if(state.crashTicksLeft > 0 || (state.cryptoLaunchQueue && state.cryptoLaunchQueue.length)) return; // don't compete with the scripted crash for attention
+  if(state.flashCrash) return; // ditto for a flash crash — one market-wide story at a time
   if(Date.now() < nextLiveEventAt) return;
   const unlocked = unlockedTierIds();
   const pool = MARKET_EVENT_TEMPLATES.filter(t=>{
@@ -1055,6 +1104,7 @@ function maybeRotateHotAsset(){
   }
   if(tutorialActive || state.tutorialAwaitingRecovery) return; // don't compete with the onboarding focus
   if(state.crashTicksLeft > 0 || (state.cryptoLaunchQueue && state.cryptoLaunchQueue.length)) return; // don't compete with the scripted crash
+  if(state.flashCrash) return; // "this asset is heating up" reads as nonsense mid-selloff
   if(document.hidden) return;
   if(!state.hotAssetId && now >= nextHotAssetAt){
     const unlocked = unlockedTierIds();
@@ -1067,6 +1117,134 @@ function maybeRotateHotAsset(){
     }
     nextHotAssetAt = now + randBetween(HOT_ASSET_MIN_GAP_MS, HOT_ASSET_MAX_GAP_MS);
   }
+}
+
+/* ---------- 2d. Flash crash (telegraphed market-wide selloff) ---------- */
+// Phase machine: warning -> slide -> rebound -> null. Persisted so closing the
+// app mid-crash resumes rather than silently cancelling (or double-firing).
+// Only ASSET_DEFS move; safe havens ride it out untouched, by design.
+let bootedAt = Date.now();
+
+function flashCrashPhase(){ return state.flashCrash ? state.flashCrash.phase : null; }
+function flashCrashActive(){ return !!state.flashCrash; }
+
+function rescheduleFlashCrash(){
+  state.flashCrashActiveMs = 0;
+  state.flashCrashTargetMs = randBetween(FLASH_CRASH_MIN_ACTIVE_MS, FLASH_CRASH_MAX_ACTIVE_MS);
+}
+
+function maybeTriggerFlashCrash(){
+  if(state.flashCrash) return;                       // already running
+  if(state.flashCrashActiveMs < state.flashCrashTargetMs) return;
+  if(Date.now() - bootedAt < FLASH_CRASH_BOOT_GRACE_MS) return; // don't ambush someone who just opened the app after a long absence
+  if(document.hidden) return;                        // a warning nobody can see isn't a warning
+  if(tutorialActive || state.tutorialAwaitingRecovery) return;
+  if(state.crashTicksLeft > 0 || (state.cryptoLaunchQueue && state.cryptoLaunchQueue.length)) return;
+  if(document.getElementById('brokeOverlay').classList.contains('show')) return;
+  if(netWorth() < FLASH_CRASH_MIN_NET_WORTH){        // too fragile — reschedule instead of burying them
+    rescheduleFlashCrash();
+    return;
+  }
+  // A rumor event and a market-wide crash fighting over the same asset's price
+  // leaves the event's math referencing a stale baseline — same reason the
+  // scripted crypto crash cancels it outright.
+  if(liveEvent){ hideLiveEventBanner(); liveEvent = null; }
+  startFlashCrash();
+}
+
+function startFlashCrash(){
+  const slideTicks = Math.max(1, Math.round(FLASH_CRASH_SLIDE_S*1000/TICK_MS));
+  const reboundTicks = Math.max(1, Math.round(FLASH_CRASH_REBOUND_S*1000/TICK_MS));
+  // Rebound is expressed against the post-slide price, so the net floor works
+  // out to roughly -(depth * (1 - reboundFrac)).
+  const reboundTotal = 1 / (1 - FLASH_CRASH_DEPTH * FLASH_CRASH_REBOUND_FRAC);
+  state.flashCrash = {
+    phase: 'warning',
+    ticksLeft: Math.max(1, Math.round(FLASH_CRASH_WARNING_S*1000/TICK_MS)),
+    slideTicks,
+    reboundTicks,
+    slidePerTick: Math.pow(1 - FLASH_CRASH_DEPTH, 1/slideTicks),
+    reboundPerTick: Math.pow(reboundTotal, 1/reboundTicks),
+    startNetWorth: netWorth(),
+  };
+  // Offered only for the duration of the crash, never from the random pool:
+  // ensureChallenges() won't hand out a new set until every active challenge
+  // is done, so a permanently-uncompletable "buy the dip" sitting in a slot
+  // between crashes would stall the whole challenge system.
+  ensureChallenges();
+  state.activeChallenges.push({id:'buyTheDip', type:'crashDipBuy', target:1, label:'Buy the dip before it recovers', reward:65, progress:0, done:false, temp:true});
+  pushHeadline('Selling pressure building — the whole board looks shaky', 'down');
+  renderFlashCrashBanner();
+  saveState();
+}
+
+// Returns 'ALL' on the ticks it owns every risky asset's price, so tickPrices()
+// skips its usual random walk for them (same convention as the scripted crash).
+function applyFlashCrashTick(){
+  const fc = state.flashCrash;
+  if(!fc) return null;
+  let owns = null;
+  if(fc.phase === 'slide'){
+    ASSET_DEFS.forEach(a=>{ state.prices[a.id] = Math.max(0.01, state.prices[a.id] * fc.slidePerTick); });
+    owns = 'ALL';
+  } else if(fc.phase === 'rebound'){
+    ASSET_DEFS.forEach(a=>{
+      let p = state.prices[a.id] * fc.reboundPerTick;
+      if(a.type === 'prediction') p = Math.min(0.97, Math.max(0.03, p));
+      state.prices[a.id] = Math.max(0.01, p);
+    });
+    owns = 'ALL';
+  }
+  fc.ticksLeft--;
+  if(fc.ticksLeft <= 0) advanceFlashCrashPhase();
+  else renderFlashCrashBanner();
+  return owns;
+}
+
+function advanceFlashCrashPhase(){
+  const fc = state.flashCrash;
+  if(fc.phase === 'warning'){
+    fc.phase = 'slide';
+    fc.ticksLeft = fc.slideTicks;
+    pushHeadline('It snapped — panic selling across every risky market', 'down');
+    hapticTap();
+  } else if(fc.phase === 'slide'){
+    fc.phase = 'rebound';
+    fc.ticksLeft = fc.reboundTicks;
+    pushHeadline('Bargain hunters stepping in — some of it is coming back', 'up');
+  } else {
+    const pct = ((netWorth() - fc.startNetWorth) / fc.startNetWorth) * 100;
+    pushHeadline(`Dust settles — the board ends the crash ${pct>=0?'up':'down'} ${Math.abs(pct).toFixed(1)}% on the session`, pct>=0?'up':'down');
+    state.flashCrash = null;
+    rescheduleFlashCrash();
+    // Drop the dip challenge if they didn't take it, so it can't clog a slot.
+    state.activeChallenges = (state.activeChallenges||[]).filter(c=>!c.temp || c.done);
+    hideFlashCrashBanner();
+    saveState();
+    return;
+  }
+  renderFlashCrashBanner();
+  saveState();
+}
+
+function renderFlashCrashBanner(){
+  const fc = state.flashCrash;
+  const el = document.getElementById('flashCrashBanner');
+  if(!fc || !el) return;
+  const secs = Math.max(0, Math.round(fc.ticksLeft * TICK_MS / 1000));
+  const copy = {
+    warning: {text:'⚠️ Markets wobbling — a selloff looks imminent', sub:`Crash hits in ${secs}s · safe havens won't move`},
+    slide:   {text:'📉 CRASH — everything risky is dumping', sub:`${secs}s of freefall left`},
+    rebound: {text:'📈 Rebound — dip buyers piling in', sub:`Recovering for ${secs}s`},
+  }[fc.phase];
+  el.querySelector('.fcb-headline').textContent = copy.text;
+  el.querySelector('.fcb-sub').textContent = copy.sub;
+  el.classList.toggle('is-slide', fc.phase === 'slide');
+  el.classList.add('show');
+}
+function hideFlashCrashBanner(){
+  const el = document.getElementById('flashCrashBanner');
+  if(el){ el.classList.remove('show'); el.classList.remove('is-slide'); }
 }
 
 /* ---------- 3. Micro-goals, streaks ---------- */
@@ -1166,6 +1344,12 @@ function initDebugMode(){
     TIERS.forEach(t=>{ if(t.unlockAt>0) t.unlockAt = Math.max(50, Math.round(t.unlockAt/10)); });
     RETIRE_TIERS.forEach(t=>{ t.amt = Math.max(50, Math.round(t.amt/10)); });
   }
+}
+function debugTriggerFlashCrash(){
+  if(state.flashCrash){ showToast('Flash crash already running'); return; }
+  if(liveEvent){ hideLiveEventBanner(); liveEvent = null; }
+  startFlashCrash();
+  render();
 }
 function debugSimulateOffline(){
   state.lastSeenAt = Date.now() - 3600*1000;
@@ -1553,6 +1737,9 @@ function doTrade(dir){
     bought = true;
     progressChallenge('tradeCount');
     if(a.type==='safe') progressChallenge('safeHavenBuy');
+    // Buying a risky asset while the board is red — turns the crash from a
+    // thing that happens *to* you into a thing you can play.
+    if(a.type!=='safe' && flashCrashActive() && flashCrashPhase()!=='warning') progressChallenge('crashDipBuy');
     trackTierTraded(a.tier || 'safe');
   } else {
     const heldVal = (holdings[a.id]||0) * sidePrice;
@@ -2009,6 +2196,7 @@ render();
 // below can't have a mid-tick checkBroke() pop the broke sheet while the
 // player is still reading the recap modal.
 if(_offlineRecap){ showRecap(_offlineRecap); } else { suppressBrokeCheck = false; startTutorial(); }
+if(state.flashCrash) renderFlashCrashBanner(); // a crash interrupted by a close/reload resumes, so show its banner again
 const tickerWrapEl = document.getElementById('ticker-wrap');
 tickerWrapEl.addEventListener('touchstart', startTickerHold);
 tickerWrapEl.addEventListener('mousedown', startTickerHold);
