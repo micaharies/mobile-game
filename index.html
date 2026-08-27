@@ -2027,6 +2027,11 @@ const STORY_BEATS = [
 const INTRO_TYPE_MS = 30; // per-character delay for beat-7's typewriter
 const INTRO_LINE_STAGGER_MS = 200; // fade-up delay between lines within a non-typewriter beat
 const INTRO_TYPE_END_PAUSE_MS = 900; // beat holds this long after typing finishes, before auto-advancing
+// Global pace knob — playtest feedback was the whole sequence read as too
+// rushed to actually land the jokes. Scales every hold/typing/stagger delay
+// above uniformly rather than hand-retuning each beat, and keeps the base
+// constants matching OPENING_SEQUENCE_SPEC.md's documented values as-authored.
+const INTRO_PACE_MULT = 3;
 
 let introActive = false;
 let introIndex = -1;
@@ -2084,9 +2089,9 @@ function showIntroBeat(i){
       div.className = 'intro-line';
       div.textContent = text;
       linesEl.appendChild(div);
-      setTimeout(()=>div.classList.add('in'), li*INTRO_LINE_STAGGER_MS);
+      setTimeout(()=>div.classList.add('in'), li*INTRO_LINE_STAGGER_MS*INTRO_PACE_MULT);
     });
-    introTimer = setTimeout(advanceIntroBeat, beat.holdMs);
+    introTimer = setTimeout(advanceIntroBeat, beat.holdMs*INTRO_PACE_MULT);
   }
 }
 
@@ -2102,7 +2107,7 @@ function startTypewriterBeat(beat){
     return div;
   });
   introTyping = true;
-  introTypeTimer = setInterval(typewriterStep, INTRO_TYPE_MS);
+  introTypeTimer = setInterval(typewriterStep, INTRO_TYPE_MS*INTRO_PACE_MULT);
 }
 
 function typewriterStep(){
@@ -2123,7 +2128,7 @@ function finishTypeLine(){
   if(introTypeLineIdx >= introTypeBeat.lines.length){
     clearInterval(introTypeTimer);
     introTyping = false;
-    introTimer = setTimeout(advanceIntroBeat, INTRO_TYPE_END_PAUSE_MS);
+    introTimer = setTimeout(advanceIntroBeat, INTRO_TYPE_END_PAUSE_MS*INTRO_PACE_MULT);
   }
 }
 
@@ -2134,7 +2139,7 @@ function completeCurrentTypeLine(){
   clearInterval(introTypeTimer);
   introTypeCharIdx = introTypeBeat.lines[introTypeLineIdx].length;
   finishTypeLine();
-  if(introTyping) introTypeTimer = setInterval(typewriterStep, INTRO_TYPE_MS);
+  if(introTyping) introTypeTimer = setInterval(typewriterStep, INTRO_TYPE_MS*INTRO_PACE_MULT);
 }
 
 function escapeIntroText(s){
