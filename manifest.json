@@ -1,6 +1,6 @@
 {
-  "name": "Degenerate Capital",
-  "short_name": "DegCap",
+  "name": "Degenerate Holdings",
+  "short_name": "DegHoldings",
   "description": "Fantasy trading and betting game with fake currency",
   "start_url": "./index.html",
   "display": "standalone",

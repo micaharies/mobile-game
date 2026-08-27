@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Degenerate Capital</title>
+<title>Degenerate Holdings</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#121316">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -375,7 +375,7 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
 
 <script>
 /* ========================================================================
-   DEGENERATE CAPITAL — client-only proof of concept
+   DEGENERATE HOLDINGS — client-only proof of concept
    All simulation, pricing, and payouts run in the browser via localStorage.
    This is for playtesting the LOOP, not a production architecture:
    in the real build the market tick, trade validation, and minigame
@@ -461,7 +461,7 @@ const SAFE_DEFS = [
 // the real action (see tutorialOnEvent hooks in switchView/openTrade/doTrade).
 const TUTORIAL_STEPS = [
   { id:'welcome', target:()=>null,
-    title:'Welcome to Degenerate Capital',
+    title:'Welcome to Degenerate Holdings',
     body:"You're starting with $1,000 in fake money. Trade it, lose it, beg for more, retire rich — all consequence-free. Let's walk through the basics.",
     advance:'button' },
   { id:'net-worth', target:()=>document.getElementById('netWorthVal'),

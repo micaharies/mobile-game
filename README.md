@@ -1,4 +1,4 @@
-# Degenerate Capital — playtest POC
+# Degenerate Holdings — playtest POC
 
 A single-file, client-only proof of concept covering everything discussed so far:
 tiered markets, live price simulation, a headline ticker, a broke/recovery loop
@@ -23,7 +23,7 @@ Same pattern as the Corvette site — this is static files, so it drops straight
 behind Caddy:
 
 ```
-degcap.yourdomain.com {
+degholdings.yourdomain.com {
     root * /path/to/poc
     file_server
     encode gzip

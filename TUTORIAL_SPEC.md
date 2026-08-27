@@ -63,7 +63,7 @@ spotlight real elements on the actual portfolio/markets screens.
 
 ### 1. Welcome
 - **Target:** none (centered card)
-- **Title:** Welcome to Degenerate Capital
+- **Title:** Welcome to Degenerate Holdings
 - **Body:** You're starting with $1,000 in fake money. Trade it, lose it,
   beg for more, retire rich — all consequence-free. Let's walk through
   the basics.

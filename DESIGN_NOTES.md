@@ -1,4 +1,4 @@
-# Design notes — Degenerate Capital
+# Design notes — Degenerate Holdings
 
 Context for anyone (human or Claude Code) picking this project up. This
 captures the reasoning behind the mechanics in `index.html`, not just what
