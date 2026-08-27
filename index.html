@@ -98,6 +98,10 @@ h2:first-child{margin-top:0;}
 .amount-row input{background:none; border:none; color:var(--text); font-size:20px; width:100%; outline:none;}
 .quick-amts{display:flex; gap:6px; margin-bottom:16px;}
 .quick-amts button{flex:1; padding:7px 0; font-size:12px; border:1px solid var(--border); border-radius:7px; background:var(--surface2);}
+.side-toggle{display:flex; gap:8px; margin-bottom:14px;}
+.side-toggle button{flex:1; padding:10px 0; text-align:center; font-size:13px; font-weight:600; border-radius:8px; border:1px solid var(--border-strong); background:var(--surface2); color:var(--text-dim);}
+.side-toggle button.active.side-yes{background:color-mix(in srgb, var(--up) 22%, var(--surface2)); border-color:var(--up); color:var(--up);}
+.side-toggle button.active.side-no{background:color-mix(in srgb, var(--down) 22%, var(--surface2)); border-color:var(--down); color:var(--down);}
 .close-x{position:absolute; top:16px; right:16px; font-size:20px; color:var(--text-faint);}
 
 /* ===== Broke modal ===== */
@@ -271,6 +275,10 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
     <div class="sheet-handle"></div>
     <h3 id="tradeAssetName">Asset</h3>
     <p class="desc" id="tradeAssetPrice">$0.00 per unit</p>
+    <div class="side-toggle" id="tradeSideToggle" style="display:none;">
+      <button class="side-yes" onclick="setTradeSide('yes')">Yes</button>
+      <button class="side-no" onclick="setTradeSide('no')">No</button>
+    </div>
     <div class="amount-block">
       <div class="amount-row">
         <span style="color:var(--text-faint); font-size:14px;">$</span>
@@ -494,7 +502,7 @@ const TUTORIAL_STEPS = [
 // moment it unlocks — never a modal, per the "no interstitials on unlock" rule.
 const TIER_EXPLAINERS = {
   crypto: {icon:'🎢', title:'Crypto unlocked', body:'Meme-driven, high volatility. Prices can double or crater in a single tick — treat it like a slot machine, not a savings account.'},
-  prediction: {icon:'⚡', title:'Prediction markets unlocked', body:'Fast-resolving bets on real-world-ish outcomes. Price is just implied odds in cents — buy in if you think it\'s mispriced.'},
+  prediction: {icon:'⚡', title:'Prediction markets unlocked', body:'Fast-resolving bets on real-world-ish outcomes. Price is just implied odds in cents — pick Yes or No depending on which side you think is mispriced.'},
   forex: {icon:'💱', title:'Forex desk unlocked', body:'Currency pairs. Slower and steadier than crypto — a different flavor of degenerate.'},
 };
 
@@ -556,6 +564,8 @@ function defaultState(){
     // --- RETENTION_SPEC.md additions below ---
     lastSeenAt: Date.now(),
     costBasis: {},
+    holdingsNo: {},
+    costBasisNo: {},
     winStreak: 0,
     activeChallenges: [],
     challengeTradedTiers: [],
@@ -581,6 +591,10 @@ function loadState(){
     if(state.holdings[a.id] === undefined) state.holdings[a.id] = 0;
     if(!state.costBasis) state.costBasis = {};
     if(state.costBasis[a.id] === undefined) state.costBasis[a.id] = 0;
+    if(!state.holdingsNo) state.holdingsNo = {};
+    if(state.holdingsNo[a.id] === undefined) state.holdingsNo[a.id] = 0;
+    if(!state.costBasisNo) state.costBasisNo = {};
+    if(state.costBasisNo[a.id] === undefined) state.costBasisNo[a.id] = 0;
   });
   // Backfill for saves from before scripted unlock events existed, so returning
   // players don't retroactively get a "surprise" pump/fanfare for tiers they
@@ -972,21 +986,31 @@ function resolveDuePredictions(){
     if(!state.predictionResolveAt[a.id] || now < state.predictionResolveAt[a.id]) return;
     const price = state.prices[a.id]; // implied odds — also the win probability
     const won = Math.random() < price;
-    const held = state.holdings[a.id]||0;
+    const heldYes = state.holdings[a.id]||0;
+    const heldNo = state.holdingsNo[a.id]||0;
     if(won){
-      if(held > 0){
-        const payout = held * 0.97;
+      if(heldYes > 0){
+        const payout = heldYes * 0.97;
         state.cash += payout;
         addLog(`${a.name} resolved YES`, '+'+fmt(payout), 'var(--up)');
-      } else {
+      } else if(heldNo === 0){
         pushHeadline(`${a.name} resolves YES`, 'up');
       }
+      if(heldNo > 0) addLog(`${a.name} resolved YES`, '-'+fmt(heldNo*(1-price)), 'var(--down)');
     } else {
-      if(held > 0) addLog(`${a.name} resolved NO`, '-'+fmt(held*price), 'var(--down)');
-      else pushHeadline(`${a.name} resolves NO`, 'down');
+      if(heldNo > 0){
+        const payout = heldNo * 0.97;
+        state.cash += payout;
+        addLog(`${a.name} resolved NO`, '+'+fmt(payout), 'var(--up)');
+      } else if(heldYes === 0){
+        pushHeadline(`${a.name} resolves NO`, 'down');
+      }
+      if(heldYes > 0) addLog(`${a.name} resolved NO`, '-'+fmt(heldYes*price), 'var(--down)');
     }
     state.holdings[a.id] = 0;
     state.costBasis[a.id] = 0;
+    state.holdingsNo[a.id] = 0;
+    state.costBasisNo[a.id] = 0;
     const freshPrice = randBetween(0.4, 0.6);
     state.prices[a.id] = freshPrice;
     state.startPrices[a.id] = freshPrice;
@@ -1180,7 +1204,10 @@ setInterval(()=>{
 /* ---------- derived values ---------- */
 function holdingsValue(){
   let v = 0;
-  allAssets().forEach(a=>{ v += (state.holdings[a.id]||0) * state.prices[a.id]; });
+  allAssets().forEach(a=>{
+    v += (state.holdings[a.id]||0) * state.prices[a.id];
+    if(a.type === 'prediction') v += (state.holdingsNo[a.id]||0) * (1 - state.prices[a.id]);
+  });
   return v;
 }
 function netWorth(){ return state.cash + holdingsValue() - state.debt; }
@@ -1278,7 +1305,7 @@ function renderMarkets(){
           </div>
         </div>
         <div class="asset-right">
-          <div class="asset-price">${a.type==='prediction'? Math.round(price*100)+'&cent;' : '$'+price.toFixed(price<5?3:2)}</div>
+          <div class="asset-price">${a.type==='prediction'? Math.round(price*100)+'&cent; Yes' : '$'+price.toFixed(price<5?3:2)}</div>
           <div class="asset-change" style="color:${chg>=0?'var(--up)':'var(--down)'}">${chg>=0?'+':''}${chg.toFixed(1)}%</div>
         </div>
       </div>`;
@@ -1330,18 +1357,24 @@ function dismissExplainer(tierId){
 
 function renderHoldings(){
   const el = document.getElementById('holdingsList');
-  const held = allAssets().filter(a=>(state.holdings[a.id]||0) > 0.0001);
-  if(!held.length){
+  const positions = [];
+  allAssets().forEach(a=>{
+    if((state.holdings[a.id]||0) > 0.0001) positions.push({a, side:'yes', qty: state.holdings[a.id]});
+    if(a.type==='prediction' && (state.holdingsNo[a.id]||0) > 0.0001) positions.push({a, side:'no', qty: state.holdingsNo[a.id]});
+  });
+  if(!positions.length){
     el.innerHTML = '<div class="empty">Nothing in your portfolio yet. Head to Markets to place your first trade.</div>';
     return;
   }
-  el.innerHTML = held.map(a=>{
-    const qty = state.holdings[a.id];
-    const val = qty * state.prices[a.id];
-    const chg = priceChangePct(a);
-    const tag = a.type==='safe' ? '<span class="tag tag-safe">Safe</span>' : '<span class="tag tag-risk">Risky</span>';
+  el.innerHTML = positions.map(({a, side, qty})=>{
+    const price = side==='no' ? 1 - state.prices[a.id] : state.prices[a.id];
+    const val = qty * price;
+    const chg = side==='no' ? -priceChangePct(a) : priceChangePct(a);
+    const tag = a.type==='prediction'
+      ? `<span class="tag ${side==='yes'?'tag-safe':'tag-risk'}">${side==='yes'?'Yes':'No'}</span>`
+      : (a.type==='safe' ? '<span class="tag tag-safe">Safe</span>' : '<span class="tag tag-risk">Risky</span>');
     return `
-      <div class="asset" onclick="openTrade('${a.id}')">
+      <div class="asset" onclick="openTrade('${a.id}','${side}')">
         <div class="asset-left">
           <div class="asset-icon" style="background:color-mix(in srgb, ${a.color} 18%, var(--surface2)); color:${a.color};">${a.icon}</div>
           <div>
@@ -1393,20 +1426,54 @@ function addLog(text, amt, color){
 
 /* ---------- trading ---------- */
 let tradeSessionId = 0; // bumped on every open so a stale doTrade() confirm timeout can tell it's no longer the active sheet
-function openTrade(id){
+let currentTradeSide = 'yes'; // only meaningful for type:'prediction' assets — 'yes' or 'no'
+function openTrade(id, side){
   tradeSessionId++;
   currentTradeAsset = allAssets().find(a=>a.id===id);
   document.getElementById('tradeAssetName').textContent = currentTradeAsset.name;
-  const price = state.prices[id];
-  document.getElementById('tradeAssetPrice').textContent = (currentTradeAsset.type==='prediction'? Math.round(price*100)+'¢' : '$'+price.toFixed(2)) + ' per unit · you own ' + (state.holdings[id]||0).toFixed(2);
+  const isPrediction = currentTradeAsset.type === 'prediction';
+  document.getElementById('tradeSideToggle').style.display = isPrediction ? 'flex' : 'none';
+  // Default to whichever side was passed in (e.g. tapped from a holdings row),
+  // else keep Yes selected unless the player only holds No on this market.
+  currentTradeSide = isPrediction
+    ? (side || ((state.holdings[id]||0) <= 0 && (state.holdingsNo[id]||0) > 0 ? 'no' : 'yes'))
+    : 'yes';
+  updateTradeSideButtons();
+  refreshTradePriceLabel();
   document.getElementById('tradeAmount').value = '';
   document.getElementById('tradeOverlay').classList.add('show');
   tutorialOnEvent('openAsset');
 }
+function setTradeSide(side){
+  currentTradeSide = side;
+  updateTradeSideButtons();
+  refreshTradePriceLabel();
+  hapticTap();
+}
+function updateTradeSideButtons(){
+  document.querySelectorAll('#tradeSideToggle button').forEach(b=>{
+    b.classList.toggle('active', b.classList.contains('side-'+currentTradeSide));
+  });
+}
+function refreshTradePriceLabel(){
+  const a = currentTradeAsset;
+  const price = state.prices[a.id];
+  if(a.type === 'prediction'){
+    const isNo = currentTradeSide === 'no';
+    const sidePrice = isNo ? 1-price : price;
+    const owned = isNo ? (state.holdingsNo[a.id]||0) : (state.holdings[a.id]||0);
+    document.getElementById('tradeAssetPrice').textContent = Math.round(sidePrice*100)+'¢ per unit · you own ' + owned.toFixed(2);
+  } else {
+    document.getElementById('tradeAssetPrice').textContent = '$'+price.toFixed(2) + ' per unit · you own ' + (state.holdings[a.id]||0).toFixed(2);
+  }
+}
 function closeOverlay(id){ document.getElementById(id).classList.remove('show'); }
 function quickAmt(pct){
   if(!currentTradeAsset) return;
-  const heldVal = (state.holdings[currentTradeAsset.id]||0) * state.prices[currentTradeAsset.id];
+  const a = currentTradeAsset;
+  const isNo = a.type === 'prediction' && currentTradeSide === 'no';
+  const sidePrice = isNo ? 1-state.prices[a.id] : state.prices[a.id];
+  const heldVal = (isNo ? (state.holdingsNo[a.id]||0) : (state.holdings[a.id]||0)) * sidePrice;
   const max = Math.max(state.cash, heldVal); // whichever action (buy vs sell) they tap next, this is its real ceiling
   document.getElementById('tradeAmount').value = Math.floor(max * (pct/100));
 }
@@ -1415,24 +1482,41 @@ function doTrade(dir){
   if(!amt || amt <= 0){ showToast('Enter an amount first'); return; }
   const a = currentTradeAsset;
   const price = state.prices[a.id];
+  // Prediction markets trade Yes and No as separate positions — No costs
+  // (1 - implied odds) and settles opposite to Yes when the market resolves.
+  const isNo = a.type === 'prediction' && currentTradeSide === 'no';
+  const sidePrice = isNo ? 1-price : price;
+  const holdings = isNo ? state.holdingsNo : state.holdings;
+  const costBasis = isNo ? state.costBasisNo : state.costBasis;
+  const sideLabel = a.type === 'prediction' ? (isNo ? ' (No)' : ' (Yes)') : '';
   const mySession = tradeSessionId;
   let bought = false;
   if(dir === 'buy'){
-    if(amt > state.cash){ showToast("You don't have that much cash"); return; }
-    const prevUnits = state.holdings[a.id]||0;
-    const prevCost = state.costBasis[a.id]||0;
-    const newUnits = amt/price;
-    state.cash -= amt;
-    state.holdings[a.id] = prevUnits + newUnits;
-    state.costBasis[a.id] = state.holdings[a.id]>0 ? ((prevCost*prevUnits)+(price*newUnits))/state.holdings[a.id] : price;
-    addLog(`Bought ${a.name}`, '-'+fmt(amt), 'var(--down)');
+    if(state.cash <= 0){ showToast("You don't have any cash"); return; }
+    // Clamp to available cash instead of rejecting the trade outright — the
+    // Max quick-amount button fills in whichever of cash/holdings-value is
+    // larger (see quickAmt) since it can't know which direction you'll tap
+    // next, so a real "max buy" while holding a bigger position than your
+    // cash on hand relies on this clamp rather than forcing a manual retype.
+    // Also covers the pre-existing case of Max landing a few cents under
+    // actual cash from flooring to a whole dollar.
+    const spendAmt = (state.cash - amt <= 1) ? state.cash : amt;
+    const prevUnits = holdings[a.id]||0;
+    const prevCost = costBasis[a.id]||0;
+    const newUnits = spendAmt/sidePrice;
+    state.cash -= spendAmt;
+    holdings[a.id] = prevUnits + newUnits;
+    costBasis[a.id] = holdings[a.id]>0 ? ((prevCost*prevUnits)+(sidePrice*newUnits))/holdings[a.id] : sidePrice;
+    addLog(`Bought ${a.name}${sideLabel}`, '-'+fmt(spendAmt), 'var(--down)');
     bought = true;
     progressChallenge('tradeCount');
     if(a.type==='safe') progressChallenge('safeHavenBuy');
     trackTierTraded(a.tier || 'safe');
   } else {
-    const heldVal = (state.holdings[a.id]||0) * price;
-    const sellAmt = Math.min(amt, heldVal);
+    const heldVal = (holdings[a.id]||0) * sidePrice;
+    // Same idea in reverse: a floored "Max" sell would otherwise leave a dust
+    // fraction of the position (and a few leftover cents) unsold forever.
+    const sellAmt = (heldVal - amt <= 1) ? heldVal : Math.min(amt, heldVal);
     if(sellAmt <= 0){ showToast("You don't own any of that"); return; }
     // Win streak: was this position sold for more per-unit than its average cost?
     // A cost basis of exactly 0 means "never tracked" (a real buy can't produce
@@ -1440,14 +1524,14 @@ function doTrade(dir){
     // predates cost-basis tracking. Leave the streak untouched rather than
     // falling back to price>price (always false), which would wrongly zero
     // a streak on a legitimately profitable sale.
-    if(state.costBasis[a.id] > 0){
-      const wasProfitable = price > state.costBasis[a.id];
+    if(costBasis[a.id] > 0){
+      const wasProfitable = sidePrice > costBasis[a.id];
       state.winStreak = wasProfitable ? (state.winStreak||0)+1 : 0;
     }
-    state.holdings[a.id] -= sellAmt/price;
-    if(state.holdings[a.id] <= 0.0001) state.costBasis[a.id] = 0;
+    holdings[a.id] -= sellAmt/sidePrice;
+    if(holdings[a.id] <= 0.0001) costBasis[a.id] = 0;
     state.cash += sellAmt;
-    addLog(`Sold ${a.name}`, '+'+fmt(sellAmt), 'var(--up)');
+    addLog(`Sold ${a.name}${sideLabel}`, '+'+fmt(sellAmt), 'var(--up)');
     progressChallenge('tradeCount');
     progressChallenge('sellCount');
     trackTierTraded(a.tier || 'safe');
@@ -1478,7 +1562,7 @@ function checkBroke(){
     return;
   }
   if(state.cash > 1) return;
-  const sellable = allAssets().reduce((sum,a)=> sum + (state.holdings[a.id]||0)*state.prices[a.id], 0);
+  const sellable = holdingsValue();
   if(sellable > 5) return;
   document.getElementById('brokeOverlay').classList.add('show');
 }
