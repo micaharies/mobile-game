@@ -475,6 +475,10 @@ const TIERS = [
   {id:'crypto', label:'Crypto', unlockAt:2000, line:'Local trader clears $2,000, granted crypto exchange access'},
   {id:'prediction', label:'Predictions', unlockAt:5000, line:'Trader crosses $5,000, prediction markets now open'},
   {id:'forex', label:'Forex', unlockAt:15000, line:'Trader crosses $15,000, granted access to forex desk'},
+  // Matches RETIRE_TIERS' "Legend" amount exactly — this is meant to read as
+  // the same milestone, not a coincidence: reaching Legend net worth is what
+  // unlocks the one asset priced for people who've already made it.
+  {id:'legend', label:'Legend', unlockAt:250000, line:'Net worth crosses $250,000 — Legend-tier holdings unlocked'},
 ];
 
 const CRYPTO_LAUNCH_ASSET = 'doge';
@@ -606,6 +610,11 @@ const ASSET_DEFS = [
   {id:'sports', name:'Home team wins tonight', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.55, vol:0.038, drift:0, icon:'?', color:'var(--down)'},
   {id:'traffic', name:'Traffic clears before 6pm', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.45, vol:0.042, drift:0, icon:'?', color:'var(--down)'},
   {id:'eurusd', name:'EUR/USD', sub:'Forex pair', tier:'forex', type:'forex', price:1.08, vol:0.004, drift:0, icon:'€', color:'var(--text-dim)'},
+  // The whale asset: priced high because shares outstanding are deliberately
+  // tiny (1.5M), not because the company is small — same trick the real
+  // holding-company-that-shall-not-be-named uses. Low vol/drift on purpose:
+  // this isn't a play, it's a place to park a fortune once you have one.
+  {id:'omah', name:'OMAH', sub:'Conglomerate holding co. · buy it and forget it', tier:'legend', type:'stock', price:100000, vol:0.0025, drift:0.00015, shares:1500000, icon:'Ω', color:'var(--cash)'},
 ];
 const SAFE_DEFS = [
   {id:'stable', name:'StableCoin', sub:'Nearly flat, crash-proof', type:'safe', price:1, vol:0.0005, drift:0.00005, shares:3000000000, icon:'S', color:'var(--up)'},
@@ -672,6 +681,7 @@ const TIER_EXPLAINERS = {
   crypto: {icon:'🎢', title:'Crypto unlocked', body:'Meme-driven, high volatility. Prices can double or crater in a single tick — treat it like a slot machine, not a savings account.'},
   prediction: {icon:'⚡', title:'Prediction markets unlocked', body:'Fast-resolving bets on real-world-ish outcomes. Price is just implied odds in cents — pick Yes or No depending on which side you think is mispriced.'},
   forex: {icon:'💱', title:'Forex desk unlocked', body:'Currency pairs. Slower and steadier than crypto — a different flavor of degenerate.'},
+  legend: {icon:'👑', title:'Legend tier unlocked', body:'One holding, priced for people who no longer check their bank balance. Barely moves — the point isn\'t the swings, it\'s owning a piece of something that outlasts you.'},
 };
 
 const HEADLINE_POOL = [
@@ -1669,6 +1679,15 @@ function fmtBig(n, isDollar){
   return isDollar ? '$'+s : s;
 }
 
+// Per-unit asset price formatting — same decimal-precision-by-magnitude
+// rule the codebase already used inline (toFixed(3) under $5, else 2), just
+// with thousands separators added so a six-figure share price (the Legend
+// tier) doesn't render as an unreadable run of digits.
+function fmtPrice(p){
+  const decimals = p < 5 ? 3 : 2;
+  return '$'+p.toLocaleString(undefined, {minimumFractionDigits:decimals, maximumFractionDigits:decimals});
+}
+
 function priceChangePct(a){
   const start = state.startPrices[a.id];
   return ((state.prices[a.id]-start)/start)*100;
@@ -1766,7 +1785,7 @@ function renderMarkets(){
           </div>
         </div>
         <div class="asset-right">
-          <div class="asset-price">${a.type==='prediction'? Math.round(price*100)+'&cent; Yes' : '$'+price.toFixed(price<5?3:2)}</div>
+          <div class="asset-price">${a.type==='prediction'? Math.round(price*100)+'&cent; Yes' : fmtPrice(price)}</div>
           <div class="asset-change" style="color:${chg>=0?'var(--up)':'var(--down)'}">${chg>=0?'+':''}${chg.toFixed(1)}%</div>
         </div>
       </div>`;
@@ -1786,7 +1805,7 @@ function renderMarkets(){
           </div>
         </div>
         <div class="asset-right">
-          <div class="asset-price">$${price.toFixed(2)}</div>
+          <div class="asset-price">${fmtPrice(price)}</div>
           <div class="asset-change" style="color:${chg>=0?'var(--up)':'var(--down)'}">${chg>=0?'+':''}${chg.toFixed(1)}%</div>
         </div>
       </div>`;
@@ -1965,10 +1984,10 @@ function renderTradeStats(){
   const el = document.getElementById('tradeStats');
   if(!el) return;
   const stats = computeTradeStats(a);
-  const fmtPrice = p => a.type==='prediction' ? Math.round(p*100)+'¢' : '$'+p.toFixed(p<5?3:2);
+  const fmtStatPrice = p => a.type==='prediction' ? Math.round(p*100)+'¢' : fmtPrice(p);
   let html = `
-    <div><div class="trade-stat-label">Weekly High</div><div class="trade-stat-value">${fmtPrice(stats.high)}</div></div>
-    <div><div class="trade-stat-label">Weekly Low</div><div class="trade-stat-value">${fmtPrice(stats.low)}</div></div>`;
+    <div><div class="trade-stat-label">Weekly High</div><div class="trade-stat-value">${fmtStatPrice(stats.high)}</div></div>
+    <div><div class="trade-stat-label">Weekly Low</div><div class="trade-stat-value">${fmtStatPrice(stats.low)}</div></div>`;
   if(stats.marketCapText){
     html += `
     <div><div class="trade-stat-label">Volume</div><div class="trade-stat-value">${stats.volumeText}</div></div>
@@ -1996,7 +2015,7 @@ function refreshTradePriceLabel(){
     const owned = isNo ? (state.holdingsNo[a.id]||0) : (state.holdings[a.id]||0);
     document.getElementById('tradeAssetPrice').textContent = Math.round(sidePrice*100)+'¢ per unit · you own ' + owned.toFixed(2);
   } else {
-    document.getElementById('tradeAssetPrice').textContent = '$'+price.toFixed(2) + ' per unit · you own ' + (state.holdings[a.id]||0).toFixed(2);
+    document.getElementById('tradeAssetPrice').textContent = fmtPrice(price) + ' per unit · you own ' + (state.holdings[a.id]||0).toFixed(2);
   }
 }
 function closeOverlay(id){ document.getElementById(id).classList.remove('show'); }
