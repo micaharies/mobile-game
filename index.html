@@ -22,6 +22,36 @@
   --font-ui: 'Inter', -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
+/* ===== Terminal mode (toggleable retro CRT theme, see toggleTerminalMode) =====
+   Reuses the exact same green (#3dff6e) as the opening sequence's
+   terminal-boot beat, so switching this on reads as "the rest of the app
+   caught up to that vibe" rather than a mismatched second theme. Because
+   virtually everything in this file is styled off the custom properties
+   above rather than hardcoded colors, overriding them here is enough to
+   reskin the whole app — no per-component changes needed. */
+body.theme-terminal{
+  --bg:#040a05; --surface1:#0a150b; --surface2:#0f1f11; --surface3:#152b17;
+  --border:#1f3d20; --border-strong:#2c5c2e;
+  --text:#3dff6e; --text-dim:#2bb350; --text-faint:#1f7a38;
+  --cash:#ffb347; --cash-dim:#8a5a1e;
+  --up:#3dff6e; --up-dim:#123d1f;
+  --down:#ff5f4d; --down-dim:#5c1f18;
+  --lock:#1f3d20;
+  --safe:#4de0c8;
+  --font-ui: var(--font-mono);
+}
+body.theme-terminal button, body.theme-terminal input{ font-family:var(--font-mono); }
+body.theme-terminal #netWorthVal, body.theme-terminal .tut-tooltip-title, body.theme-terminal h2{
+  text-shadow:0 0 6px rgba(61,255,110,.45);
+}
+/* Scanline texture, same technique as the intro's terminal-boot beat — sits
+   above ordinary content but below modals/overlays (tut-backdrop is 9998+)
+   so it doesn't fight for attention over anything actually interactive. */
+body.theme-terminal::after{
+  content:''; position:fixed; inset:0; z-index:9990; pointer-events:none;
+  background:repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 1px, rgba(0,0,0,.14) 1px, rgba(0,0,0,.14) 2px);
+  mix-blend-mode:multiply;
+}
 *{box-sizing:border-box; margin:0; padding:0;}
 html,body{background:var(--bg); color:var(--text); font-family:var(--font-ui); -webkit-tap-highlight-color:transparent; overscroll-behavior:none;}
 body{max-width:480px; margin:0 auto; min-height:100vh; display:flex; flex-direction:column; padding-bottom:72px;}
@@ -185,6 +215,7 @@ h2:first-child{margin-top:0;}
 .tag-risk{background:var(--down-dim); color:var(--down);}
 footer.reset-row{padding:24px 16px 8px; text-align:center;}
 footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration:underline;}
+footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:12px; font-weight:600; text-decoration:none; color:var(--text-dim); border:1px solid var(--border-strong); border-radius:20px; padding:6px 14px; width:fit-content;}
 
 /* ===== RETENTION_SPEC.md additions ===== */
 
@@ -305,7 +336,10 @@ footer.reset-row button{font-size:11px; color:var(--text-faint); text-decoration
   <div class="view" id="view-log">
     <h2>Recent activity</h2>
     <div id="logList"></div>
-    <footer class="reset-row"><button onclick="replayIntro()">Replay intro</button> · <button onclick="replayTutorial()">Replay tutorial</button> · <button onclick="resetGame()">Reset save data</button></footer>
+    <footer class="reset-row">
+      <button id="terminalModeBtn" onclick="toggleTerminalMode()">Terminal mode: Off</button>
+      <button onclick="replayIntro()">Replay intro</button> · <button onclick="replayTutorial()">Replay tutorial</button> · <button onclick="resetGame()">Reset save data</button>
+    </footer>
     <div id="debugRow"><button onclick="debugSimulateOffline()">Debug: simulate 1hr offline</button><button onclick="debugTriggerFlashCrash()">Debug: trigger flash crash</button></div>
   </div>
 </main>
@@ -704,6 +738,7 @@ function defaultState(){
     flashCrashActiveMs: 0,
     flashCrashTargetMs: randBetween(FLASH_CRASH_MIN_ACTIVE_MS, FLASH_CRASH_MAX_ACTIVE_MS),
     debugMode: false,
+    terminalMode: false,
   };
 }
 
@@ -802,6 +837,7 @@ function loadState(){
     state.flashCrashTargetMs = randBetween(FLASH_CRASH_MIN_ACTIVE_MS, FLASH_CRASH_MAX_ACTIVE_MS);
   }
   if(state.debugMode === undefined) state.debugMode = false;
+  if(state.terminalMode === undefined) state.terminalMode = false;
 }
 
 function saveState(){ state.lastSeenAt = Date.now(); localStorage.setItem(SAVE_KEY, JSON.stringify(state)); }
@@ -810,8 +846,21 @@ function resetGame(){
   if(!confirm('Wipe your save and start over?')) return;
   localStorage.removeItem(SAVE_KEY);
   loadState();
+  applyTerminalMode();
   render();
   showToast('Save wiped. Fresh start.');
+}
+
+function applyTerminalMode(){
+  document.body.classList.toggle('theme-terminal', state.terminalMode);
+  const btn = document.getElementById('terminalModeBtn');
+  if(btn) btn.textContent = 'Terminal mode: ' + (state.terminalMode ? 'On' : 'Off');
+}
+function toggleTerminalMode(){
+  state.terminalMode = !state.terminalMode;
+  applyTerminalMode();
+  saveState();
+  hapticTap();
 }
 
 /* ---------- price simulation ---------- */
@@ -2495,6 +2544,7 @@ function showToast(msg){
 
 /* ---------- boot ---------- */
 loadState();
+applyTerminalMode();
 initDebugMode();
 const _offlineRecap = runOfflineRecap();
 initSessionStartPrices(); // after the offline recap so "this session" starts from what you're about to see, not from before you were away
