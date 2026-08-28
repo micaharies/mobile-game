@@ -513,6 +513,45 @@ const FLASH_CRASH_MIN_NET_WORTH = 400; // below this, skip it — kicking a brok
 const PREDICTION_RESOLVE_MIN_S = 60;
 const PREDICTION_RESOLVE_MAX_S = 90;
 
+// Pool every prediction market's question is drawn from on resolution, so
+// the same 4 questions don't just loop forever — each of the 4 slots (see
+// ASSET_DEFS below) keeps its id/price/vol permanently, but the *question*
+// text attached to it (state.predictionNames) gets reassigned to a random
+// pick from here each time it resolves, minus whatever's currently showing
+// on any of the other active slots (see pickPredictionQuestion).
+const PREDICTION_QUESTION_BANK = [
+  'Rain tomorrow',
+  'Mayor wins reelection',
+  'Home team wins tonight',
+  'Traffic clears before 6pm',
+  'Snow before Thanksgiving',
+  'City council approves the new bridge',
+  'Landlord actually fixes the heat',
+  'Neighbor\'s dog barks past midnight',
+  'Gas prices drop this week',
+  'Bakery sells out of donuts by 9am',
+  'Outdoor concert gets rained out',
+  'Office wifi outage before end of day',
+  'Downtown parking garage fills up by noon',
+  'High school team wins the championship',
+  'Farmers market gets cancelled for weather',
+  'Power stays on during the storm',
+  'Ferry runs on time today',
+  'Diner changes its menu this month',
+  'County fair breaks last year\'s attendance record',
+  'Construction on 5th Ave finishes on schedule',
+  'Lake freezes over by New Year\'s',
+  'Food truck festival sells out',
+  'Library extends its hours',
+  'Bridge toll goes up this quarter',
+  'Minor league team wins the opener',
+  'Election recount changes the result',
+  'Block party gets its permit in time',
+  'Local bakery wins "best in town" again',
+  'Weekend flea market gets moved indoors',
+  'Community pool reopens on schedule',
+];
+
 const ASSET_DEFS = [
   {id:'aapl', name:'AAPL', sub:'Big tech stock', tier:'stocks', type:'stock', price:180, vol:0.006, drift:0.0001, icon:'A', color:'var(--safe)'},
   {id:'gmtx', name:'GMTX', sub:'Auto manufacturer', tier:'stocks', type:'stock', price:64, vol:0.008, drift:0.0001, icon:'G', color:'var(--safe)'},
@@ -522,6 +561,8 @@ const ASSET_DEFS = [
   {id:'rugx', name:'RUGX', sub:'EXTRA RISKY · unhinged meme coin, no floor no ceiling', tier:'crypto', type:'crypto', price:150, vol:0.14, drift:0, meanReversion:0.02, meanPrice:150, shockMult:12, icon:'☠', color:'var(--down)'},
   {id:'rain', name:'Rain tomorrow', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.5, vol:0.04, drift:0, icon:'?', color:'var(--down)'},
   {id:'elec', name:'Mayor wins reelection', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.62, vol:0.035, drift:0, icon:'?', color:'var(--down)'},
+  {id:'sports', name:'Home team wins tonight', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.55, vol:0.038, drift:0, icon:'?', color:'var(--down)'},
+  {id:'traffic', name:'Traffic clears before 6pm', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.45, vol:0.042, drift:0, icon:'?', color:'var(--down)'},
   {id:'eurusd', name:'EUR/USD', sub:'Forex pair', tier:'forex', type:'forex', price:1.08, vol:0.004, drift:0, icon:'€', color:'var(--text-dim)'},
 ];
 const SAFE_DEFS = [
@@ -656,6 +697,7 @@ function defaultState(){
     activeChallenges: [],
     challengeTradedTiers: [],
     predictionResolveAt: {},
+    predictionNames: {},
     hotAssetId: null,
     hotAssetUntil: 0,
     flashCrash: null,
@@ -666,6 +708,26 @@ function defaultState(){
 }
 
 function allAssets(){ return ASSET_DEFS.concat(SAFE_DEFS); }
+
+// Prediction markets keep their id/price/vol forever but get a fresh
+// question each time they resolve (see pickPredictionQuestion) — this is
+// the one place that matters, everywhere else that wants an asset's display
+// name should go through here instead of reading a.name directly.
+function assetName(a){ return state.predictionNames[a.id] || a.name; }
+
+// Picks a fresh question for a resolving prediction market, avoiding
+// whatever's currently showing on any OTHER active prediction slot (so two
+// markets never show the same question at once) and never repeating what
+// this one just had.
+function pickPredictionQuestion(resolvingAssetId){
+  const inUse = new Set(
+    ASSET_DEFS.filter(a=>a.type==='prediction' && a.id!==resolvingAssetId).map(a=>assetName(a))
+  );
+  const justHad = assetName(ASSET_DEFS.find(a=>a.id===resolvingAssetId));
+  let pool = PREDICTION_QUESTION_BANK.filter(q=>q!==justHad && !inUse.has(q));
+  if(!pool.length) pool = PREDICTION_QUESTION_BANK.filter(q=>q!==justHad); // bank exhausted (shouldn't happen with 4 slots) — just don't repeat itself
+  return pool[Math.floor(Math.random()*pool.length)];
+}
 
 function loadState(){
   const raw = localStorage.getItem(SAVE_KEY);
@@ -727,6 +789,7 @@ function loadState(){
   if(state.activeChallenges === undefined) state.activeChallenges = [];
   if(state.challengeTradedTiers === undefined) state.challengeTradedTiers = [];
   if(state.predictionResolveAt === undefined) state.predictionResolveAt = {};
+  if(state.predictionNames === undefined) state.predictionNames = {};
   ASSET_DEFS.filter(a=>a.type==='prediction').forEach(a=>{
     if(state.predictionResolveAt[a.id] === undefined){
       state.predictionResolveAt[a.id] = Date.now() + randBetween(PREDICTION_RESOLVE_MIN_S, PREDICTION_RESOLVE_MAX_S)*1000;
@@ -801,7 +864,7 @@ function tickPrices(){
     }
   });
   if(bigMove && Math.random() < 0.6){
-    pushHeadline(`${bigMove.asset.name} ${bigMove.dir==='up'?'skyrockets on hype buying':'craters on panic selling'}`, bigMove.dir);
+    pushHeadline(`${assetName(bigMove.asset)} ${bigMove.dir==='up'?'skyrockets on hype buying':'craters on panic selling'}`, bigMove.dir);
   }
   applyOnboardingBoost();
   accrueDebt();
@@ -975,7 +1038,7 @@ function showRecap(recap){
   const nwDelta = recap.nwAfter - recap.nwBefore;
   const deltaColor = nwDelta >= 0 ? 'var(--up)' : 'var(--down)';
   const moverLine = recap.biggestMover
-    ? `<div class="recap-mover">Biggest mover: ${recap.biggestMover.name} ${recap.biggestPct>=0?'up':'down'} ${Math.abs(recap.biggestPct).toFixed(1)}%</div>`
+    ? `<div class="recap-mover">Biggest mover: ${assetName(recap.biggestMover)} ${recap.biggestPct>=0?'up':'down'} ${Math.abs(recap.biggestPct).toFixed(1)}%</div>`
     : '';
   document.getElementById('recapBody').innerHTML = `
     <div class="recap-stat" style="color:${deltaColor}">${nwDelta>=0?'+':''}${fmt(nwDelta)}</div>
@@ -1059,7 +1122,7 @@ function liveEventChoice(choice){
       state.cash -= amt;
       state.holdings[liveEvent.assetId] = prevUnits + newUnits;
       state.costBasis[liveEvent.assetId] = state.holdings[liveEvent.assetId]>0 ? ((prevCost*prevUnits)+(price*newUnits))/state.holdings[liveEvent.assetId] : price;
-      addLog(`Jumped on a rumor (${asset.name})`, '-'+fmt(amt), 'var(--down)');
+      addLog(`Jumped on a rumor (${assetName(asset)})`, '-'+fmt(amt), 'var(--down)');
       progressChallenge('tradeCount');
       trackTierTraded(asset.tier);
     }
@@ -1076,11 +1139,11 @@ function resolveLiveEvent(){
   const dir = pct >= 0 ? 'up' : 'down';
   let headline;
   if(liveEvent.choice === 'buy'){
-    headline = `${asset.name} ${dir==='up'?'pays off for the buyers who jumped in':'burns the buyers who jumped in'} — ${pct>=0?'+':''}${pct.toFixed(1)}%`;
+    headline = `${assetName(asset)} ${dir==='up'?'pays off for the buyers who jumped in':'burns the buyers who jumped in'} — ${pct>=0?'+':''}${pct.toFixed(1)}%`;
   } else if(liveEvent.choice === 'wait'){
-    headline = `${asset.name} ${dir==='up'?'ripped':'dumped'} while the cautious ones watched — ${pct>=0?'+':''}${pct.toFixed(1)}%`;
+    headline = `${assetName(asset)} ${dir==='up'?'ripped':'dumped'} while the cautious ones watched — ${pct>=0?'+':''}${pct.toFixed(1)}%`;
   } else {
-    headline = `${asset.name} settles ${dir} ${Math.abs(pct).toFixed(1)}% — most people never even saw the rumor`;
+    headline = `${assetName(asset)} settles ${dir} ${Math.abs(pct).toFixed(1)}% — most people never even saw the rumor`;
   }
   pushHeadline(headline, dir);
   hideLiveEventBanner();
@@ -1122,20 +1185,20 @@ function resolveDuePredictions(){
       if(heldYes > 0){
         const payout = heldYes * 0.97;
         state.cash += payout;
-        addLog(`${a.name} resolved YES`, '+'+fmt(payout), 'var(--up)');
+        addLog(`${assetName(a)} resolved YES`, '+'+fmt(payout), 'var(--up)');
       } else if(heldNo === 0){
-        pushHeadline(`${a.name} resolves YES`, 'up');
+        pushHeadline(`${assetName(a)} resolves YES`, 'up');
       }
-      if(heldNo > 0) addLog(`${a.name} resolved YES`, '-'+fmt(heldNo*(1-price)), 'var(--down)');
+      if(heldNo > 0) addLog(`${assetName(a)} resolved YES`, '-'+fmt(heldNo*(1-price)), 'var(--down)');
     } else {
       if(heldNo > 0){
         const payout = heldNo * 0.97;
         state.cash += payout;
-        addLog(`${a.name} resolved NO`, '+'+fmt(payout), 'var(--up)');
+        addLog(`${assetName(a)} resolved NO`, '+'+fmt(payout), 'var(--up)');
       } else if(heldYes === 0){
-        pushHeadline(`${a.name} resolves NO`, 'down');
+        pushHeadline(`${assetName(a)} resolves NO`, 'down');
       }
-      if(heldYes > 0) addLog(`${a.name} resolved NO`, '-'+fmt(heldYes*price), 'var(--down)');
+      if(heldYes > 0) addLog(`${assetName(a)} resolved NO`, '-'+fmt(heldYes*price), 'var(--down)');
     }
     state.holdings[a.id] = 0;
     state.costBasis[a.id] = 0;
@@ -1145,6 +1208,7 @@ function resolveDuePredictions(){
     state.prices[a.id] = freshPrice;
     state.startPrices[a.id] = freshPrice;
     sessionStartPrices[a.id] = freshPrice; // otherwise the Markets list would show a fake ~huge swing off the pre-resolution price
+    state.predictionNames[a.id] = pickPredictionQuestion(a.id); // resolution messages above already read the OLD question via assetName(a) — reassign only now that they're done
     state.predictionResolveAt[a.id] = now + randBetween(PREDICTION_RESOLVE_MIN_S, PREDICTION_RESOLVE_MAX_S)*1000;
   });
 }
@@ -1167,7 +1231,7 @@ function maybeRotateHotAsset(){
       const pick = pool[Math.floor(Math.random()*pool.length)];
       state.hotAssetId = pick.id;
       state.hotAssetUntil = now + HOT_ASSET_DURATION_MS;
-      pushHeadline(`${pick.name} is heating up — traders piling in`, 'up');
+      pushHeadline(`${assetName(pick)} is heating up — traders piling in`, 'up');
     }
     nextHotAssetAt = now + randBetween(HOT_ASSET_MIN_GAP_MS, HOT_ASSET_MAX_GAP_MS);
   }
@@ -1580,7 +1644,7 @@ function renderMarkets(){
         <div class="asset-left">
           <div class="asset-icon" style="background:${isLocked?'var(--surface3)':'color-mix(in srgb, '+a.color+' 18%, var(--surface2))'}; color:${isLocked?'var(--text-faint)':a.color};">${isLocked?'&#128274;':a.icon}</div>
           <div>
-            <div class="asset-name">${a.name}${isHot?' <span class="hot-badge">🔥 HOT</span>':''}</div>
+            <div class="asset-name">${assetName(a)}${isHot?' <span class="hot-badge">🔥 HOT</span>':''}</div>
             <div class="asset-sub">${isLocked?`Unlocks at $${tierInfo.unlockAt.toLocaleString()} net worth`:a.sub}</div>
           </div>
         </div>
@@ -1600,7 +1664,7 @@ function renderMarkets(){
         <div class="asset-left">
           <div class="asset-icon" style="background:color-mix(in srgb, ${a.color} 18%, var(--surface2)); color:${a.color};">${a.icon}</div>
           <div>
-            <div class="asset-name">${a.name}</div>
+            <div class="asset-name">${assetName(a)}</div>
             <div class="asset-sub">${a.sub}</div>
           </div>
         </div>
@@ -1658,7 +1722,7 @@ function renderHoldings(){
         <div class="asset-left">
           <div class="asset-icon" style="background:color-mix(in srgb, ${a.color} 18%, var(--surface2)); color:${a.color};">${a.icon}</div>
           <div>
-            <div class="asset-name">${a.name} ${tag}</div>
+            <div class="asset-name">${assetName(a)} ${tag}</div>
             <div class="asset-sub">${qty.toFixed(qty<1?4:2)} units</div>
           </div>
         </div>
@@ -1710,7 +1774,7 @@ let currentTradeSide = 'yes'; // only meaningful for type:'prediction' assets �
 function openTrade(id, side){
   tradeSessionId++;
   currentTradeAsset = allAssets().find(a=>a.id===id);
-  document.getElementById('tradeAssetName').textContent = currentTradeAsset.name;
+  document.getElementById('tradeAssetName').textContent = assetName(currentTradeAsset);
   const isPrediction = currentTradeAsset.type === 'prediction';
   document.getElementById('tradeSideToggle').style.display = isPrediction ? 'flex' : 'none';
   // Default to whichever side was passed in (e.g. tapped from a holdings row),
@@ -1787,7 +1851,7 @@ function doTrade(dir){
     state.cash -= spendAmt;
     holdings[a.id] = prevUnits + newUnits;
     costBasis[a.id] = holdings[a.id]>0 ? ((prevCost*prevUnits)+(sidePrice*newUnits))/holdings[a.id] : sidePrice;
-    addLog(`Bought ${a.name}${sideLabel}`, '-'+fmt(spendAmt), 'var(--down)');
+    addLog(`Bought ${assetName(a)}${sideLabel}`, '-'+fmt(spendAmt), 'var(--down)');
     bought = true;
     progressChallenge('tradeCount');
     if(a.type==='safe') progressChallenge('safeHavenBuy');
@@ -1814,7 +1878,7 @@ function doTrade(dir){
     holdings[a.id] -= sellAmt/sidePrice;
     if(holdings[a.id] <= 0.0001) costBasis[a.id] = 0;
     state.cash += sellAmt;
-    addLog(`Sold ${a.name}${sideLabel}`, '+'+fmt(sellAmt), 'var(--up)');
+    addLog(`Sold ${assetName(a)}${sideLabel}`, '+'+fmt(sellAmt), 'var(--up)');
     progressChallenge('tradeCount');
     progressChallenge('sellCount');
     trackTierTraded(a.tier || 'safe');
