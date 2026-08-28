@@ -346,7 +346,7 @@ footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:1
       <button id="terminalModeBtn" onclick="toggleTerminalMode()">Terminal mode: Off</button>
       <button onclick="replayIntro()">Replay intro</button> · <button onclick="replayTutorial()">Replay tutorial</button> · <button onclick="resetGame()">Reset save data</button>
     </footer>
-    <div id="debugRow"><button onclick="debugSimulateOffline()">Debug: simulate 1hr offline</button><button onclick="debugTriggerFlashCrash()">Debug: trigger flash crash</button></div>
+    <div id="debugRow"><button onclick="debugSimulateOffline()">Debug: simulate 1hr offline</button><button onclick="debugTriggerFlashCrash()">Debug: trigger flash crash</button><button onclick="debugTriggerRugPull()">Debug: trigger rug pull</button></div>
   </div>
 </main>
 
@@ -556,6 +556,23 @@ const FLASH_CRASH_DEPTH = 0.25;     // risky assets shed this much at the bottom
 const FLASH_CRASH_REBOUND_FRAC = 0.4; // fraction of the drop clawed back (net ~-15%)
 const FLASH_CRASH_BOOT_GRACE_MS = 90 * 1000; // never crash someone the instant they open the app
 const FLASH_CRASH_MIN_NET_WORTH = 400; // below this, skip it — kicking a broke player isn't drama, it's a death spiral
+
+// --- RUGX rug pull ---
+// Playtest feedback: RUGX's always-on mean-reversion (added so it wouldn't
+// permanently die at the floor) made "buy the dip and wait" a near-guaranteed
+// win instead of a real gamble. Two-part fix: (1) reversion is now a per-tick
+// coin flip rather than constant, so recovery timing is genuinely uncertain,
+// and (2) this — a rare, UNWARNED crash (unlike the telegraphed flash crash;
+// a rug pull is a scam, not a fair market move) that also suspends reversion
+// entirely for a while, so a rug pull can genuinely be un-recoverable within
+// a session. Scoped to RUGX alone, not market-wide.
+const RUGX_PULL_MIN_ACTIVE_MS = 10 * 60 * 1000;
+const RUGX_PULL_MAX_ACTIVE_MS = 25 * 60 * 1000;
+const RUGX_PULL_BOOT_GRACE_MS = 90 * 1000;
+const RUGX_PULL_CRASH_MULT_MIN = 0.02; // leaves it at 2-8% of its pre-pull price
+const RUGX_PULL_CRASH_MULT_MAX = 0.08;
+const RUGX_PULL_SUSPEND_MIN_TICKS = 150; // ~3min of active ticks at TICK_MS=1250
+const RUGX_PULL_SUSPEND_MAX_TICKS = 500; // ~10min
 const PREDICTION_RESOLVE_MIN_S = 60;
 const PREDICTION_RESOLVE_MAX_S = 90;
 
@@ -604,7 +621,7 @@ const ASSET_DEFS = [
   {id:'ncla', name:'NCLA', sub:'Cruise line stock', tier:'stocks', type:'stock', price:22, vol:0.012, drift:0, meanReversion:0.02, meanPrice:22, meanReversionBelow:5, shares:240000000, icon:'N', color:'var(--safe)'},
   {id:'doge', name:'DOGO', sub:'Meme crypto', tier:'crypto', type:'crypto', price:0.6, vol:0.05, drift:-0.0002, shares:140000000000, icon:'D', color:'var(--cash)'},
   {id:'btcx', name:'BTCX', sub:'Flagship crypto', tier:'crypto', type:'crypto', price:420, vol:0.03, drift:0.0002, shares:19000000, icon:'B', color:'var(--cash)'},
-  {id:'rugx', name:'RUGX', sub:'EXTRA RISKY · unhinged meme coin, no floor no ceiling', tier:'crypto', type:'crypto', price:150, vol:0.14, drift:0, meanReversion:0.02, meanPrice:150, shockMult:12, shares:900000000, icon:'☠', color:'var(--down)'},
+  {id:'rugx', name:'RUGX', sub:'EXTRA RISKY · unhinged meme coin, no floor no ceiling', tier:'crypto', type:'crypto', price:150, vol:0.14, drift:0, meanReversion:0.02, meanReversionChance:0.3, meanPrice:150, shockMult:12, shares:900000000, icon:'☠', color:'var(--down)'},
   {id:'rain', name:'Rain tomorrow', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.5, vol:0.04, drift:0, icon:'?', color:'var(--down)'},
   {id:'elec', name:'Mayor wins reelection', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.62, vol:0.035, drift:0, icon:'?', color:'var(--down)'},
   {id:'sports', name:'Home team wins tonight', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.55, vol:0.038, drift:0, icon:'?', color:'var(--down)'},
@@ -755,6 +772,9 @@ function defaultState(){
     flashCrash: null,
     flashCrashActiveMs: 0,
     flashCrashTargetMs: randBetween(FLASH_CRASH_MIN_ACTIVE_MS, FLASH_CRASH_MAX_ACTIVE_MS),
+    rugxPullActiveMs: 0,
+    rugxPullTargetMs: randBetween(RUGX_PULL_MIN_ACTIVE_MS, RUGX_PULL_MAX_ACTIVE_MS),
+    meanReversionSuspendedTicks: {},
     debugMode: false,
     terminalMode: false,
   };
@@ -854,6 +874,11 @@ function loadState(){
   if(state.flashCrashTargetMs === undefined){
     state.flashCrashTargetMs = randBetween(FLASH_CRASH_MIN_ACTIVE_MS, FLASH_CRASH_MAX_ACTIVE_MS);
   }
+  if(state.rugxPullActiveMs === undefined) state.rugxPullActiveMs = 0;
+  if(state.rugxPullTargetMs === undefined){
+    state.rugxPullTargetMs = randBetween(RUGX_PULL_MIN_ACTIVE_MS, RUGX_PULL_MAX_ACTIVE_MS);
+  }
+  if(state.meanReversionSuspendedTicks === undefined) state.meanReversionSuspendedTicks = {};
   if(state.debugMode === undefined) state.debugMode = false;
   if(state.terminalMode === undefined) state.terminalMode = false;
 }
@@ -914,11 +939,19 @@ function tickPrices(){
     // flatten out genuine crashes entirely, not just prevent permanent
     // ones, since it fights the random walk continuously rather than only
     // rescuing it once it's actually in trouble. RUGX has no threshold
-    // (always-on, part of its whole-range chaos); NCLA only gets rescued
-    // once it's actually crashed into penny-stock territory.
+    // (part of its whole-range chaos); NCLA only gets rescued once it's
+    // actually crashed into penny-stock territory.
+    // meanReversionChance (default 1 = every tick, like NCLA) makes the pull
+    // a per-tick coin flip instead of constant — RUGX's playtest exploit was
+    // that an always-on pull makes "buy the dip and wait" a sure thing, not
+    // a gamble; a probabilistic pull keeps the long-run recovery but not the
+    // guarantee. meanReversionSuspendedTicks (set by a rug pull, see
+    // maybeTriggerRugPull) forces it off entirely regardless of chance.
     // shockMult widens shock spikes beyond the default.
     const belowRescue = a.meanReversionBelow === undefined || state.prices[a.id] < a.meanReversionBelow;
-    const revert = (a.meanReversion && belowRescue) ? a.meanReversion * Math.log(a.meanPrice / state.prices[a.id]) : 0;
+    const reversionSuspended = (state.meanReversionSuspendedTicks[a.id]||0) > 0;
+    const reversionRoll = Math.random() < (a.meanReversionChance === undefined ? 1 : a.meanReversionChance);
+    const revert = (a.meanReversion && belowRescue && !reversionSuspended && reversionRoll) ? a.meanReversion * Math.log(a.meanPrice / state.prices[a.id]) : 0;
     const shockMult = a.shockMult || 6;
     const shock = (Math.random() < effVol * 0.15) ? (Math.random()<0.5?-1:1) * effVol * shockMult : 0;
     const change = a.drift + revert + (Math.random()*2-1) * effVol + shock;
@@ -933,6 +966,12 @@ function tickPrices(){
   if(bigMove && Math.random() < 0.6){
     pushHeadline(`${assetName(bigMove.asset)} ${bigMove.dir==='up'?'skyrockets on hype buying':'craters on panic selling'}`, bigMove.dir);
   }
+  // Decremented unconditionally (not inside the per-asset loop above) so it
+  // still counts down even on a tick where RUGX happens to be under a
+  // scripted crash's or live event's control and skips the normal walk.
+  Object.keys(state.meanReversionSuspendedTicks).forEach(id=>{
+    if(state.meanReversionSuspendedTicks[id] > 0) state.meanReversionSuspendedTicks[id]--;
+  });
   updateSessionPriceExtremes();
   recordSessionPriceHistory();
   applyOnboardingBoost();
@@ -942,6 +981,8 @@ function tickPrices(){
   maybeTriggerLiveEvent();
   if(!document.hidden) state.flashCrashActiveMs += TICK_MS; // only counts time actually spent looking at the app
   maybeTriggerFlashCrash();
+  if(!document.hidden) state.rugxPullActiveMs += TICK_MS;
+  maybeTriggerRugPull();
   saveState();
   render();
 }
@@ -1436,6 +1477,35 @@ function hideFlashCrashBanner(){
   if(el){ el.classList.remove('show'); el.classList.remove('is-slide'); }
 }
 
+/* ---------- 2e. RUGX rug pull (unwarned, single-asset) ---------- */
+function rescheduleRugPull(){
+  state.rugxPullActiveMs = 0;
+  state.rugxPullTargetMs = randBetween(RUGX_PULL_MIN_ACTIVE_MS, RUGX_PULL_MAX_ACTIVE_MS);
+}
+
+function maybeTriggerRugPull(){
+  if((state.meanReversionSuspendedTicks.rugx||0) > 0) return; // already mid-pull, don't stack another
+  if(state.rugxPullActiveMs < state.rugxPullTargetMs) return;
+  if(Date.now() - bootedAt < RUGX_PULL_BOOT_GRACE_MS) return;
+  if(document.hidden) return; // same reasoning as the flash crash — no point crashing it where nobody's looking
+  if(tutorialActive || state.tutorialAwaitingRecovery || introActive) return;
+  if(state.crashTicksLeft > 0 || (state.cryptoLaunchQueue && state.cryptoLaunchQueue.length)) return; // don't compete with the scripted crash
+  if(state.flashCrash) return; // one market-wide/asset-specific crash story at a time
+  startRugPull();
+}
+
+function startRugPull(){
+  const mult = randBetween(RUGX_PULL_CRASH_MULT_MIN, RUGX_PULL_CRASH_MULT_MAX);
+  state.prices.rugx = Math.max(0.01, state.prices.rugx * mult);
+  state.meanReversionSuspendedTicks.rugx = Math.round(randBetween(RUGX_PULL_SUSPEND_MIN_TICKS, RUGX_PULL_SUSPEND_MAX_TICKS));
+  // No warning banner on purpose — a flash crash is a fair, telegraphed
+  // market move; a rug pull is a scam, and the whole point is you don't see
+  // it coming. The headline lands after the fact, not as a countdown.
+  pushHeadline('RUGX rug pulled — liquidity drained, devs gone dark', 'down');
+  rescheduleRugPull();
+  saveState();
+}
+
 /* ---------- 3. Micro-goals, streaks ---------- */
 const CHALLENGE_POOL = [
   {id:'trades3', type:'tradeCount', target:3, label:'Make 3 trades', reward:50},
@@ -1538,6 +1608,11 @@ function debugTriggerFlashCrash(){
   if(state.flashCrash){ showToast('Flash crash already running'); return; }
   if(liveEvent){ hideLiveEventBanner(); liveEvent = null; }
   startFlashCrash();
+  render();
+}
+function debugTriggerRugPull(){
+  if((state.meanReversionSuspendedTicks.rugx||0) > 0){ showToast('RUGX already mid-pull'); return; }
+  startRugPull();
   render();
 }
 function debugSimulateOffline(){
