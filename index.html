@@ -516,7 +516,7 @@ const PREDICTION_RESOLVE_MAX_S = 90;
 const ASSET_DEFS = [
   {id:'aapl', name:'AAPL', sub:'Big tech stock', tier:'stocks', type:'stock', price:180, vol:0.006, drift:0.0001, icon:'A', color:'var(--safe)'},
   {id:'gmtx', name:'GMTX', sub:'Auto manufacturer', tier:'stocks', type:'stock', price:64, vol:0.008, drift:0.0001, icon:'G', color:'var(--safe)'},
-  {id:'ncla', name:'NCLA', sub:'Cruise line stock', tier:'stocks', type:'stock', price:22, vol:0.012, drift:0, icon:'N', color:'var(--safe)'},
+  {id:'ncla', name:'NCLA', sub:'Cruise line stock', tier:'stocks', type:'stock', price:22, vol:0.012, drift:0, meanReversion:0.02, meanPrice:22, meanReversionBelow:5, icon:'N', color:'var(--safe)'},
   {id:'doge', name:'DOGO', sub:'Meme crypto', tier:'crypto', type:'crypto', price:0.6, vol:0.05, drift:-0.0002, icon:'D', color:'var(--cash)'},
   {id:'btcx', name:'BTCX', sub:'Flagship crypto', tier:'crypto', type:'crypto', price:420, vol:0.03, drift:0.0002, icon:'B', color:'var(--cash)'},
   {id:'rugx', name:'RUGX', sub:'EXTRA RISKY · unhinged meme coin, no floor no ceiling', tier:'crypto', type:'crypto', price:150, vol:0.14, drift:0, meanReversion:0.02, meanPrice:150, shockMult:12, icon:'☠', color:'var(--down)'},
@@ -774,12 +774,21 @@ function tickPrices(){
     if(a.id === scriptedAssetThisTick) return; // scripted event owns this tick's move
     if(liveEvent && a.id === liveEvent.assetId) return; // live event owns this tick's move
     const effVol = (a.id === state.hotAssetId) ? a.vol * HOT_VOL_MULT : a.vol;
-    // Optional per-asset overrides (RUGX only, currently) — meanReversion
-    // pulls the price back toward meanPrice in log-space so an extreme coin
-    // keeps oscillating between real highs and lows instead of a symmetric
-    // random walk's usual fate of wandering into the price floor and dying
-    // there for good. shockMult widens its shock spikes beyond the default.
-    const revert = a.meanReversion ? a.meanReversion * Math.log(a.meanPrice / state.prices[a.id]) : 0;
+    // Optional per-asset overrides — meanReversion pulls the price back
+    // toward meanPrice in log-space so an asset keeps oscillating between
+    // real highs and lows instead of a symmetric random walk's usual fate
+    // of wandering into the price floor and dying there for good.
+    // meanReversionBelow (if set) gates that pull to only engage once the
+    // price has actually crashed past that point — tested empirically:
+    // even a very weak *constant* reversion compounds over enough ticks to
+    // flatten out genuine crashes entirely, not just prevent permanent
+    // ones, since it fights the random walk continuously rather than only
+    // rescuing it once it's actually in trouble. RUGX has no threshold
+    // (always-on, part of its whole-range chaos); NCLA only gets rescued
+    // once it's actually crashed into penny-stock territory.
+    // shockMult widens shock spikes beyond the default.
+    const belowRescue = a.meanReversionBelow === undefined || state.prices[a.id] < a.meanReversionBelow;
+    const revert = (a.meanReversion && belowRescue) ? a.meanReversion * Math.log(a.meanPrice / state.prices[a.id]) : 0;
     const shockMult = a.shockMult || 6;
     const shock = (Math.random() < effVol * 0.15) ? (Math.random()<0.5?-1:1) * effVol * shockMult : 0;
     const change = a.drift + revert + (Math.random()*2-1) * effVol + shock;
