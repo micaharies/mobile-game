@@ -1728,7 +1728,7 @@ function render(){
   if(debugRow) debugRow.style.display = state.debugMode ? 'block' : 'none';
   checkBroke();
   if(tutorialActive) refreshTutorialSpotlight();
-  if(document.getElementById('tradeOverlay').classList.contains('show')) renderTradeChart(); // live-updates the sparkline while the sheet is open
+  if(document.getElementById('tradeOverlay').classList.contains('show')){ refreshTradePriceLabel(); renderTradeChart(); } // live-updates the price label + sparkline while the sheet is open
 }
 
 function randBetween(min, max){ return min + Math.random()*(max-min); }
