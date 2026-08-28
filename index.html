@@ -133,6 +133,10 @@ h2:first-child{margin-top:0;}
 .side-toggle button{flex:1; padding:10px 0; text-align:center; font-size:13px; font-weight:600; border-radius:8px; border:1px solid var(--border-strong); background:var(--surface2); color:var(--text-dim);}
 .side-toggle button.active.side-yes{background:color-mix(in srgb, var(--up) 22%, var(--surface2)); border-color:var(--up); color:var(--up);}
 .side-toggle button.active.side-no{background:color-mix(in srgb, var(--down) 22%, var(--surface2)); border-color:var(--down); color:var(--down);}
+/* ===== Trade sheet stats grid (Apple Stocks-ish) ===== */
+.trade-stats{display:grid; grid-template-columns:1fr 1fr; gap:10px 16px; padding:12px 14px; margin-bottom:14px; background:var(--surface2); border:1px solid var(--border); border-radius:12px;}
+.trade-stat-label{font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-faint); margin-bottom:2px;}
+.trade-stat-value{font-size:14px; font-family:var(--font-mono); font-weight:600; color:var(--text);}
 .close-x{position:absolute; top:16px; right:16px; font-size:20px; color:var(--text-faint);}
 
 /* ===== Broke modal ===== */
@@ -363,6 +367,7 @@ footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:1
       <button class="side-yes" onclick="setTradeSide('yes')">Yes</button>
       <button class="side-no" onclick="setTradeSide('no')">No</button>
     </div>
+    <div class="trade-stats" id="tradeStats"></div>
     <div class="amount-block">
       <div class="amount-row">
         <span style="color:var(--text-faint); font-size:14px;">$</span>
@@ -587,12 +592,12 @@ const PREDICTION_QUESTION_BANK = [
 ];
 
 const ASSET_DEFS = [
-  {id:'aapl', name:'AAPL', sub:'Big tech stock', tier:'stocks', type:'stock', price:180, vol:0.006, drift:0.0001, icon:'A', color:'var(--safe)'},
-  {id:'gmtx', name:'GMTX', sub:'Auto manufacturer', tier:'stocks', type:'stock', price:64, vol:0.008, drift:0.0001, icon:'G', color:'var(--safe)'},
-  {id:'ncla', name:'NCLA', sub:'Cruise line stock', tier:'stocks', type:'stock', price:22, vol:0.012, drift:0, meanReversion:0.02, meanPrice:22, meanReversionBelow:5, icon:'N', color:'var(--safe)'},
-  {id:'doge', name:'DOGO', sub:'Meme crypto', tier:'crypto', type:'crypto', price:0.6, vol:0.05, drift:-0.0002, icon:'D', color:'var(--cash)'},
-  {id:'btcx', name:'BTCX', sub:'Flagship crypto', tier:'crypto', type:'crypto', price:420, vol:0.03, drift:0.0002, icon:'B', color:'var(--cash)'},
-  {id:'rugx', name:'RUGX', sub:'EXTRA RISKY · unhinged meme coin, no floor no ceiling', tier:'crypto', type:'crypto', price:150, vol:0.14, drift:0, meanReversion:0.02, meanPrice:150, shockMult:12, icon:'☠', color:'var(--down)'},
+  {id:'aapl', name:'AAPL', sub:'Big tech stock', tier:'stocks', type:'stock', price:180, vol:0.006, drift:0.0001, shares:15200000000, icon:'A', color:'var(--safe)'},
+  {id:'gmtx', name:'GMTX', sub:'Auto manufacturer', tier:'stocks', type:'stock', price:64, vol:0.008, drift:0.0001, shares:480000000, icon:'G', color:'var(--safe)'},
+  {id:'ncla', name:'NCLA', sub:'Cruise line stock', tier:'stocks', type:'stock', price:22, vol:0.012, drift:0, meanReversion:0.02, meanPrice:22, meanReversionBelow:5, shares:240000000, icon:'N', color:'var(--safe)'},
+  {id:'doge', name:'DOGO', sub:'Meme crypto', tier:'crypto', type:'crypto', price:0.6, vol:0.05, drift:-0.0002, shares:140000000000, icon:'D', color:'var(--cash)'},
+  {id:'btcx', name:'BTCX', sub:'Flagship crypto', tier:'crypto', type:'crypto', price:420, vol:0.03, drift:0.0002, shares:19000000, icon:'B', color:'var(--cash)'},
+  {id:'rugx', name:'RUGX', sub:'EXTRA RISKY · unhinged meme coin, no floor no ceiling', tier:'crypto', type:'crypto', price:150, vol:0.14, drift:0, meanReversion:0.02, meanPrice:150, shockMult:12, shares:900000000, icon:'☠', color:'var(--down)'},
   {id:'rain', name:'Rain tomorrow', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.5, vol:0.04, drift:0, icon:'?', color:'var(--down)'},
   {id:'elec', name:'Mayor wins reelection', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.62, vol:0.035, drift:0, icon:'?', color:'var(--down)'},
   {id:'sports', name:'Home team wins tonight', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.55, vol:0.038, drift:0, icon:'?', color:'var(--down)'},
@@ -600,9 +605,9 @@ const ASSET_DEFS = [
   {id:'eurusd', name:'EUR/USD', sub:'Forex pair', tier:'forex', type:'forex', price:1.08, vol:0.004, drift:0, icon:'€', color:'var(--text-dim)'},
 ];
 const SAFE_DEFS = [
-  {id:'stable', name:'StableCoin', sub:'Nearly flat, crash-proof', type:'safe', price:1, vol:0.0005, drift:0.00005, icon:'S', color:'var(--up)'},
-  {id:'index', name:'Index Fund', sub:'Slow and steady', type:'safe', price:100, vol:0.002, drift:0.0002, icon:'I', color:'var(--up)'},
-  {id:'bond', name:'Treasury Bond', sub:'Boring on purpose', type:'safe', price:50, vol:0.0008, drift:0.0001, icon:'T', color:'var(--up)'},
+  {id:'stable', name:'StableCoin', sub:'Nearly flat, crash-proof', type:'safe', price:1, vol:0.0005, drift:0.00005, shares:3000000000, icon:'S', color:'var(--up)'},
+  {id:'index', name:'Index Fund', sub:'Slow and steady', type:'safe', price:100, vol:0.002, drift:0.0002, shares:400000000, icon:'I', color:'var(--up)'},
+  {id:'bond', name:'Treasury Bond', sub:'Boring on purpose', type:'safe', price:50, vol:0.0008, drift:0.0001, shares:600000000, icon:'T', color:'var(--up)'},
 ];
 
 // Spotlight onboarding — see TUTORIAL_SPEC.md. `target` is a resolver
@@ -915,6 +920,7 @@ function tickPrices(){
   if(bigMove && Math.random() < 0.6){
     pushHeadline(`${assetName(bigMove.asset)} ${bigMove.dir==='up'?'skyrockets on hype buying':'craters on panic selling'}`, bigMove.dir);
   }
+  updateSessionPriceExtremes();
   applyOnboardingBoost();
   accrueDebt();
   resolveDuePredictions();
@@ -1257,6 +1263,7 @@ function resolveDuePredictions(){
     state.prices[a.id] = freshPrice;
     state.startPrices[a.id] = freshPrice;
     sessionStartPrices[a.id] = freshPrice; // otherwise the Markets list would show a fake ~huge swing off the pre-resolution price
+    sessionPriceExtremes[a.id] = { high: freshPrice, low: freshPrice }; // a resolved market is a brand new question — old high/low no longer means anything
     state.predictionNames[a.id] = pickPredictionQuestion(a.id); // resolution messages above already read the OLD question via assetName(a) — reassign only now that they're done
     state.predictionResolveAt[a.id] = now + randBetween(PREDICTION_RESOLVE_MIN_S, PREDICTION_RESOLVE_MAX_S)*1000;
   });
@@ -1642,6 +1649,20 @@ function fmt(n){
   return neg ? '-'+s : s;
 }
 
+// Compact K/M/B/T formatting for the trade sheet's stats grid (market cap,
+// volume) — these get big fast (a mega-cap's cap is in the trillions) and
+// fmt()'s plain comma-separated dollars would be unreadable at that scale.
+function fmtBig(n, isDollar){
+  const abs = Math.abs(n);
+  let s;
+  if(abs >= 1e12) s = (n/1e12).toFixed(2)+'T';
+  else if(abs >= 1e9) s = (n/1e9).toFixed(2)+'B';
+  else if(abs >= 1e6) s = (n/1e6).toFixed(1)+'M';
+  else if(abs >= 1e3) s = (n/1e3).toFixed(1)+'K';
+  else s = n.toFixed(0);
+  return isDollar ? '$'+s : s;
+}
+
 function priceChangePct(a){
   const start = state.startPrices[a.id];
   return ((state.prices[a.id]-start)/start)*100;
@@ -1659,6 +1680,25 @@ function sessionChangePct(a){
   const start = sessionStartPrices[a.id];
   if(start === undefined) return 0;
   return ((state.prices[a.id]-start)/start)*100;
+}
+
+// Same ephemeral-since-boot idea as sessionStartPrices, but tracking the
+// running min/max instead of a fixed baseline — this is what the trade
+// sheet's "Weekly High/Low" actually reads from. Genuinely session-scoped
+// (resets on reload) rather than a real calendar week, same as everywhere
+// else "session" already means "since you opened the app" in this file.
+let sessionPriceExtremes = {};
+function initSessionPriceExtremes(){
+  allAssets().forEach(a=>{ sessionPriceExtremes[a.id] = { high: state.prices[a.id], low: state.prices[a.id] }; });
+}
+function updateSessionPriceExtremes(){
+  allAssets().forEach(a=>{
+    const p = state.prices[a.id];
+    const ext = sessionPriceExtremes[a.id];
+    if(!ext){ sessionPriceExtremes[a.id] = {high:p, low:p}; return; }
+    if(p > ext.high) ext.high = p;
+    if(p < ext.low) ext.low = p;
+  });
 }
 
 function renderMarkets(){
@@ -1833,9 +1873,47 @@ function openTrade(id, side){
     : 'yes';
   updateTradeSideButtons();
   refreshTradePriceLabel();
+  renderTradeStats();
   document.getElementById('tradeAmount').value = '';
   document.getElementById('tradeOverlay').classList.add('show');
   tutorialOnEvent('openAsset');
+}
+
+// Volume/market cap are computed fresh each time the sheet opens (not on
+// every render — this sheet isn't touched by the periodic tick-driven
+// render(), so there's no flicker risk) rather than persisted, since
+// they're pure flavor with no gameplay effect. High/Low come from the real
+// running sessionPriceExtremes.
+function computeTradeStats(a){
+  const price = state.prices[a.id];
+  const ext = sessionPriceExtremes[a.id] || {high:price, low:price};
+  let marketCapText = null, volumeText = null;
+  if(a.shares !== undefined){
+    marketCapText = fmtBig(price * a.shares, true);
+    // Plausible-looking share turnover, scaled by the asset's own
+    // volatility so busier/wilder assets read as more heavily traded —
+    // not tied to any real trade ledger.
+    const turnover = Math.min(0.35, a.vol * randBetween(4, 9));
+    volumeText = fmtBig(a.shares * turnover, false);
+  }
+  return { high: ext.high, low: ext.low, marketCapText, volumeText };
+}
+
+function renderTradeStats(){
+  const a = currentTradeAsset;
+  const el = document.getElementById('tradeStats');
+  if(!el) return;
+  const stats = computeTradeStats(a);
+  const fmtPrice = p => a.type==='prediction' ? Math.round(p*100)+'¢' : '$'+p.toFixed(p<5?3:2);
+  let html = `
+    <div><div class="trade-stat-label">Weekly High</div><div class="trade-stat-value">${fmtPrice(stats.high)}</div></div>
+    <div><div class="trade-stat-label">Weekly Low</div><div class="trade-stat-value">${fmtPrice(stats.low)}</div></div>`;
+  if(stats.marketCapText){
+    html += `
+    <div><div class="trade-stat-label">Volume</div><div class="trade-stat-value">${stats.volumeText}</div></div>
+    <div><div class="trade-stat-label">Market Cap</div><div class="trade-stat-value">${stats.marketCapText}</div></div>`;
+  }
+  el.innerHTML = html;
 }
 function setTradeSide(side){
   currentTradeSide = side;
@@ -2094,6 +2172,7 @@ function resetRiskyPrices(){
     state.prices[a.id] = a.price;
     state.startPrices[a.id] = a.price;
     sessionStartPrices[a.id] = a.price;
+    sessionPriceExtremes[a.id] = { high: a.price, low: a.price };
   });
 }
 
@@ -2548,6 +2627,7 @@ applyTerminalMode();
 initDebugMode();
 const _offlineRecap = runOfflineRecap();
 initSessionStartPrices(); // after the offline recap so "this session" starts from what you're about to see, not from before you were away
+initSessionPriceExtremes();
 state.dayStartNetWorth = netWorth(); // "+$X this session" should actually mean this session, not "since the tutorial's crash resolved"
 renderTicker();
 suppressBrokeCheck = !!_offlineRecap; // don't pop the broke sheet silently behind the recap modal
