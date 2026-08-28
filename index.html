@@ -137,6 +137,8 @@ h2:first-child{margin-top:0;}
 .trade-stats{display:grid; grid-template-columns:1fr 1fr; gap:10px 16px; padding:12px 14px; margin-bottom:14px; background:var(--surface2); border:1px solid var(--border); border-radius:12px;}
 .trade-stat-label{font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-faint); margin-bottom:2px;}
 .trade-stat-value{font-size:14px; font-family:var(--font-mono); font-weight:600; color:var(--text);}
+.trade-chart{width:100%; height:88px; margin-bottom:14px;}
+.trade-chart svg{width:100%; height:100%; display:block; overflow:visible;}
 .close-x{position:absolute; top:16px; right:16px; font-size:20px; color:var(--text-faint);}
 
 /* ===== Broke modal ===== */
@@ -367,6 +369,7 @@ footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:1
       <button class="side-yes" onclick="setTradeSide('yes')">Yes</button>
       <button class="side-no" onclick="setTradeSide('no')">No</button>
     </div>
+    <div class="trade-chart" id="tradeChart"></div>
     <div class="trade-stats" id="tradeStats"></div>
     <div class="amount-block">
       <div class="amount-row">
@@ -921,6 +924,7 @@ function tickPrices(){
     pushHeadline(`${assetName(bigMove.asset)} ${bigMove.dir==='up'?'skyrockets on hype buying':'craters on panic selling'}`, bigMove.dir);
   }
   updateSessionPriceExtremes();
+  recordSessionPriceHistory();
   applyOnboardingBoost();
   accrueDebt();
   resolveDuePredictions();
@@ -1264,6 +1268,7 @@ function resolveDuePredictions(){
     state.startPrices[a.id] = freshPrice;
     sessionStartPrices[a.id] = freshPrice; // otherwise the Markets list would show a fake ~huge swing off the pre-resolution price
     sessionPriceExtremes[a.id] = { high: freshPrice, low: freshPrice }; // a resolved market is a brand new question — old high/low no longer means anything
+    sessionPriceHistory[a.id] = [freshPrice];
     state.predictionNames[a.id] = pickPredictionQuestion(a.id); // resolution messages above already read the OLD question via assetName(a) — reassign only now that they're done
     state.predictionResolveAt[a.id] = now + randBetween(PREDICTION_RESOLVE_MIN_S, PREDICTION_RESOLVE_MAX_S)*1000;
   });
@@ -1638,6 +1643,7 @@ function render(){
   if(debugRow) debugRow.style.display = state.debugMode ? 'block' : 'none';
   checkBroke();
   if(tutorialActive) refreshTutorialSpotlight();
+  if(document.getElementById('tradeOverlay').classList.contains('show')) renderTradeChart(); // live-updates the sparkline while the sheet is open
 }
 
 function randBetween(min, max){ return min + Math.random()*(max-min); }
@@ -1698,6 +1704,28 @@ function updateSessionPriceExtremes(){
     if(!ext){ sessionPriceExtremes[a.id] = {high:p, low:p}; return; }
     if(p > ext.high) ext.high = p;
     if(p < ext.low) ext.low = p;
+  });
+}
+
+// Real (not synthetic) price history for the trade sheet's sparkline, same
+// session-scoped lifetime as sessionPriceExtremes and reset at the same
+// points. Sampled every tick and thinned (not windowed) once it gets long,
+// so a long session keeps representing its *full* span at coarser
+// resolution instead of the chart quietly forgetting how it started —
+// consistent with High/Low being a true session-long min/max, not a
+// recent-only slice.
+const SESSION_HISTORY_MAX_POINTS = 200;
+let sessionPriceHistory = {};
+function initSessionPriceHistory(){
+  allAssets().forEach(a=>{ sessionPriceHistory[a.id] = [state.prices[a.id]]; });
+}
+function recordSessionPriceHistory(){
+  allAssets().forEach(a=>{
+    const arr = sessionPriceHistory[a.id] || (sessionPriceHistory[a.id] = [state.prices[a.id]]);
+    arr.push(state.prices[a.id]);
+    if(arr.length > SESSION_HISTORY_MAX_POINTS){
+      for(let i=arr.length-1; i>0; i-=2) arr.splice(i,1);
+    }
   });
 }
 
@@ -1873,10 +1901,43 @@ function openTrade(id, side){
     : 'yes';
   updateTradeSideButtons();
   refreshTradePriceLabel();
+  renderTradeChart();
   renderTradeStats();
   document.getElementById('tradeAmount').value = '';
   document.getElementById('tradeOverlay').classList.add('show');
   tutorialOnEvent('openAsset');
+}
+
+// Inline SVG sparkline — no canvas/WebGL per DESIGN_NOTES.md's low-resource
+// mandate, just a polyline scaled into a viewBox. Redrawn live every tick
+// while the sheet is open (see render()), not just once on open, since
+// watching it move in real time is the whole point of the "stock terminal"
+// feel this is going for.
+function renderTradeChart(){
+  const a = currentTradeAsset;
+  const el = document.getElementById('tradeChart');
+  if(!el || !a) return;
+  const hist = sessionPriceHistory[a.id] && sessionPriceHistory[a.id].length ? sessionPriceHistory[a.id] : [state.prices[a.id]];
+  const ext = sessionPriceExtremes[a.id] || {high:state.prices[a.id], low:state.prices[a.id]};
+  const w = 300, h = 84;
+  const range = Math.max(1e-9, ext.high - ext.low); // avoid a divide-by-zero flatline on the very first tick
+  const coords = hist.map((p, i) => {
+    const x = hist.length > 1 ? (i/(hist.length-1))*w : w;
+    const y = h - ((p-ext.low)/range)*h;
+    return [x.toFixed(1), y.toFixed(1)];
+  });
+  // A lone point (first-ever open, nothing recorded yet) still needs two
+  // coords to draw anything — duplicate it into a flat line at the left edge.
+  if(coords.length === 1) coords.unshift(['0', coords[0][1]]);
+  const linePts = coords.map(c=>c.join(',')).join(' ');
+  const fillPts = `0,${h} ${linePts} ${w},${h}`;
+  const isUp = hist[hist.length-1] >= hist[0];
+  const lineColor = isUp ? 'var(--up)' : 'var(--down)';
+  el.innerHTML = `
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      <polygon points="${fillPts}" style="fill:${lineColor}; opacity:.12;"></polygon>
+      <polyline points="${linePts}" style="fill:none; stroke:${lineColor}; stroke-width:2;" stroke-linejoin="round" stroke-linecap="round"></polyline>
+    </svg>`;
 }
 
 // Volume/market cap are computed fresh each time the sheet opens (not on
@@ -2173,6 +2234,7 @@ function resetRiskyPrices(){
     state.startPrices[a.id] = a.price;
     sessionStartPrices[a.id] = a.price;
     sessionPriceExtremes[a.id] = { high: a.price, low: a.price };
+    sessionPriceHistory[a.id] = [a.price];
   });
 }
 
@@ -2628,6 +2690,7 @@ initDebugMode();
 const _offlineRecap = runOfflineRecap();
 initSessionStartPrices(); // after the offline recap so "this session" starts from what you're about to see, not from before you were away
 initSessionPriceExtremes();
+initSessionPriceHistory();
 state.dayStartNetWorth = netWorth(); // "+$X this session" should actually mean this session, not "since the tutorial's crash resolved"
 renderTicker();
 suppressBrokeCheck = !!_offlineRecap; // don't pop the broke sheet silently behind the recap modal
