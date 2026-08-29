@@ -257,6 +257,26 @@ footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:1
 .challenge-label{font-size:13px;}
 .challenge-progress{font-size:11px; font-family:var(--font-mono); color:var(--text-faint); white-space:nowrap;}
 
+/* ===== Real estate ===== */
+.property-type{background:var(--surface1); border:1px solid var(--border); border-radius:12px; padding:12px 14px; margin-bottom:10px;}
+.property-type.locked{opacity:.55;}
+.property-type-head{display:flex; align-items:center; gap:10px;}
+.property-type-icon{width:34px; height:34px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; background:var(--surface2);}
+.property-type-icon.locked{background:var(--surface3); color:var(--text-faint);}
+.property-type-name{font-size:14px; font-weight:500;}
+.property-type-sub{font-size:11px; color:var(--text-faint); margin-top:1px;}
+.property-type-head .btn{padding:8px 14px; font-size:12px;}
+.property-units{margin-top:10px; padding-top:10px; border-top:1px solid var(--border);}
+.property-unit{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 0;}
+.property-unit-left{display:flex; flex-direction:column; gap:2px; min-width:0;}
+.property-unit-name{font-size:12.5px; font-weight:500;}
+.property-unit-status{font-size:11px; color:var(--text-faint);}
+.property-unit-status.stage1{color:var(--cash);}
+.property-unit-status.stage2{color:var(--down);}
+.property-unit-status.stage3{color:var(--down); font-weight:600;}
+.property-unit-actions{display:flex; gap:6px; flex-shrink:0;}
+.property-unit-actions .btn{padding:6px 10px; font-size:11px;}
+
 /* --- 4. Juice --- */
 @keyframes flashUp{ from{background:color-mix(in srgb, var(--up) 35%, var(--surface1));} to{background:var(--surface1);} }
 @keyframes flashDown{ from{background:color-mix(in srgb, var(--down) 35%, var(--surface1));} to{background:var(--surface1);} }
@@ -339,6 +359,11 @@ footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:1
     <div id="safeList"></div>
   </div>
 
+  <div class="view" id="view-properties">
+    <h2>Real estate</h2>
+    <div id="propertiesList"></div>
+  </div>
+
   <div class="view" id="view-log">
     <h2>Recent activity</h2>
     <div id="logList"></div>
@@ -346,13 +371,14 @@ footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:1
       <button id="terminalModeBtn" onclick="toggleTerminalMode()">Terminal mode: Off</button>
       <button onclick="replayIntro()">Replay intro</button> · <button onclick="replayTutorial()">Replay tutorial</button> · <button onclick="resetGame()">Reset save data</button>
     </footer>
-    <div id="debugRow"><button onclick="debugSimulateOffline()">Debug: simulate 1hr offline</button><button onclick="debugTriggerFlashCrash()">Debug: trigger flash crash</button><button onclick="debugTriggerRugPull()">Debug: trigger rug pull</button></div>
+    <div id="debugRow"><button onclick="debugSimulateOffline()">Debug: simulate 1hr offline</button><button onclick="debugTriggerFlashCrash()">Debug: trigger flash crash</button><button onclick="debugTriggerRugPull()">Debug: trigger rug pull</button><button onclick="debugUnlockProperties()">Debug: unlock properties</button><button onclick="debugCollectRentNow()">Debug: collect rent now</button></div>
   </div>
 </main>
 
 <nav>
   <button class="active" data-view="portfolio" onclick="switchView('portfolio')"><span class="dot">$</span>Portfolio</button>
   <button data-view="markets" onclick="switchView('markets')"><span class="dot">M</span>Markets</button>
+  <button data-view="properties" onclick="switchView('properties')"><span class="dot">P</span>Properties</button>
   <button data-view="log" onclick="switchView('log')"><span class="dot">L</span>Activity</button>
 </nav>
 
@@ -573,6 +599,28 @@ const RUGX_PULL_CRASH_MULT_MIN = 0.02; // leaves it at 2-8% of its pre-pull pric
 const RUGX_PULL_CRASH_MULT_MAX = 0.08;
 const RUGX_PULL_SUSPEND_MIN_TICKS = 150; // ~3min of active ticks at TICK_MS=1250
 const RUGX_PULL_SUSPEND_MAX_TICKS = 500; // ~10min
+
+// --- Real estate ---
+// A deliberately separate system from ASSET_DEFS: properties are discrete
+// owned units (not a continuously-tradable fractional position), gated by
+// highestNetWorth like TIERS but on its own much higher scale — meant as a
+// late-game second path once a player already has real capital, not a
+// day-one alternative to stocks. Prices are fixed (no ticking/appreciation)
+// to keep this system self-contained for v1.
+const PROPERTY_RENT_MIN_ACTIVE_MS = 3 * 60 * 1000;
+const PROPERTY_RENT_MAX_ACTIVE_MS = 6 * 60 * 1000;
+const PROPERTY_DEFS = [
+  { id:'apartment', label:'Apartment', unlockAt:100000, price:40000, maxUnits:6, rent:480,
+    issueChancePerTick:0.0015, escalationIgnores:2, repairCost:1200, icon:'🏢',
+    issues:['Unit reports a burst pipe', 'Tenant complains about no hot water', 'Pest control needed — again', 'Noise complaint escalates to a lease violation', 'Elevator breaks, tenants furious'] },
+  { id:'duplex', label:'Duplex', unlockAt:500000, price:200000, maxUnits:3, rent:2200,
+    issueChancePerTick:0.0006, escalationIgnores:3, repairCost:6000, icon:'🏘️',
+    issues:['Roof starts leaking after the storm', 'HVAC dies in the middle of summer', 'Plumbing backs up in the other unit', 'Tenant dispute over the shared driveway'] },
+  { id:'house', label:'Single-family home', unlockAt:1000000, price:400000, maxUnits:2, rent:4000,
+    issueChancePerTick:0.0002, escalationIgnores:5, repairCost:12000, icon:'🏠',
+    issues:['Foundation crack spotted during inspection', 'Storm damage to the roof', 'Tenant reports a mold issue'] },
+];
+const PROPERTY_ISSUE_LABELS = ['', 'Issue reported', 'Worsening — rent halved', 'Code violation — rent stopped'];
 const PREDICTION_RESOLVE_MIN_S = 60;
 const PREDICTION_RESOLVE_MAX_S = 90;
 
@@ -775,6 +823,10 @@ function defaultState(){
     rugxPullActiveMs: 0,
     rugxPullTargetMs: randBetween(RUGX_PULL_MIN_ACTIVE_MS, RUGX_PULL_MAX_ACTIVE_MS),
     meanReversionSuspendedTicks: {},
+    properties: {apartment:[], duplex:[], house:[]},
+    propertyUnlocksSeen: [],
+    propertyRentActiveMs: 0,
+    propertyRentTargetMs: randBetween(PROPERTY_RENT_MIN_ACTIVE_MS, PROPERTY_RENT_MAX_ACTIVE_MS),
     debugMode: false,
     terminalMode: false,
   };
@@ -879,6 +931,13 @@ function loadState(){
     state.rugxPullTargetMs = randBetween(RUGX_PULL_MIN_ACTIVE_MS, RUGX_PULL_MAX_ACTIVE_MS);
   }
   if(state.meanReversionSuspendedTicks === undefined) state.meanReversionSuspendedTicks = {};
+  if(state.properties === undefined) state.properties = {apartment:[], duplex:[], house:[]};
+  PROPERTY_DEFS.forEach(def=>{ if(state.properties[def.id] === undefined) state.properties[def.id] = []; });
+  if(state.propertyUnlocksSeen === undefined) state.propertyUnlocksSeen = [];
+  if(state.propertyRentActiveMs === undefined) state.propertyRentActiveMs = 0;
+  if(state.propertyRentTargetMs === undefined){
+    state.propertyRentTargetMs = randBetween(PROPERTY_RENT_MIN_ACTIVE_MS, PROPERTY_RENT_MAX_ACTIVE_MS);
+  }
   if(state.debugMode === undefined) state.debugMode = false;
   if(state.terminalMode === undefined) state.terminalMode = false;
 }
@@ -983,6 +1042,9 @@ function tickPrices(){
   maybeTriggerFlashCrash();
   if(!document.hidden) state.rugxPullActiveMs += TICK_MS;
   maybeTriggerRugPull();
+  tickPropertyIssues();
+  if(!document.hidden) state.propertyRentActiveMs += TICK_MS;
+  maybeCollectPropertyRent();
   saveState();
   render();
 }
@@ -1506,6 +1568,125 @@ function startRugPull(){
   saveState();
 }
 
+/* ---------- 2f. Real estate ---------- */
+function checkPropertyUnlocks(){
+  PROPERTY_DEFS.forEach(def=>{
+    if(state.highestNetWorth >= def.unlockAt && !state.propertyUnlocksSeen.includes(def.id)){
+      state.propertyUnlocksSeen.push(def.id);
+      showToast(`${def.label}s unlocked`);
+      pushHeadline(`Net worth crosses $${def.unlockAt.toLocaleString()} — ${def.label.toLowerCase()} listings now available`, null);
+    }
+  });
+}
+
+// Each owned unit independently rolls a small per-tick chance of a fresh
+// issue starting — scales naturally with portfolio size (more apartments,
+// more landlord headaches), same idea as the market's per-tick shock rolls.
+function tickPropertyIssues(){
+  PROPERTY_DEFS.forEach(def=>{
+    (state.properties[def.id]||[]).forEach(unit=>{
+      if(unit.issueStage > 0) return; // already dealing with something
+      if(Math.random() < def.issueChancePerTick){
+        unit.issueStage = 1;
+        unit.ignoredCount = 0;
+        unit.issueText = def.issues[Math.floor(Math.random()*def.issues.length)];
+        pushHeadline(`${def.label}: ${unit.issueText}`, 'down');
+      }
+    });
+  });
+}
+
+// Rent collects in a lump every few minutes of active play (same scheduling
+// class as the flash crash / rug pull), not a continuous per-tick trickle —
+// reads as a real event with its own toast, not an invisible number.
+function maybeCollectPropertyRent(){
+  if(state.propertyRentActiveMs < state.propertyRentTargetMs) return;
+  state.propertyRentActiveMs = 0;
+  state.propertyRentTargetMs = randBetween(PROPERTY_RENT_MIN_ACTIVE_MS, PROPERTY_RENT_MAX_ACTIVE_MS);
+  let total = 0;
+  const lines = [];
+  PROPERTY_DEFS.forEach(def=>{
+    const units = state.properties[def.id]||[];
+    if(!units.length) return;
+    let typeTotal = 0;
+    units.forEach(unit=>{
+      const mult = unit.issueStage >= 3 ? 0 : unit.issueStage === 2 ? 0.5 : 1;
+      typeTotal += def.rent * mult;
+    });
+    if(typeTotal > 0){
+      total += typeTotal;
+      lines.push(`${def.label} x${units.length}`);
+      addLog(`Rent collected: ${def.label}${units.length>1?'s':''}`, '+'+fmt(typeTotal), 'var(--up)');
+    }
+  });
+  if(total > 0){
+    state.cash += total;
+    showToast(`Rent collected — +${fmt(total)}`);
+    saveState();
+  }
+}
+
+function buyProperty(defId){
+  const def = PROPERTY_DEFS.find(d=>d.id===defId);
+  const units = state.properties[defId];
+  if(state.highestNetWorth < def.unlockAt) return;
+  if(units.length >= def.maxUnits){ showToast('Already at max units for this type'); return; }
+  if(state.cash < def.price){ showToast("You don't have that much cash"); return; }
+  state.cash -= def.price;
+  units.push({issueStage:0, ignoredCount:0, issueText:''});
+  const article = /^[aeiou]/i.test(def.label) ? 'an' : 'a';
+  addLog(`Bought ${article} ${def.label.toLowerCase()}`, '-'+fmt(def.price), 'var(--down)');
+  hapticTap();
+  saveState();
+  render();
+}
+
+function sellProperty(defId, idx){
+  const def = PROPERTY_DEFS.find(d=>d.id===defId);
+  const units = state.properties[defId];
+  if(idx < 0 || idx >= units.length) return;
+  units.splice(idx, 1);
+  state.cash += def.price;
+  const article = /^[aeiou]/i.test(def.label) ? 'an' : 'a';
+  addLog(`Sold ${article} ${def.label.toLowerCase()}`, '+'+fmt(def.price), 'var(--up)');
+  hapticTap();
+  saveState();
+  render();
+}
+
+function fixPropertyIssue(defId, idx){
+  const def = PROPERTY_DEFS.find(d=>d.id===defId);
+  const unit = state.properties[defId][idx];
+  if(!unit || unit.issueStage === 0) return;
+  if(state.cash < def.repairCost){ showToast("You don't have that much cash"); return; }
+  state.cash -= def.repairCost;
+  unit.issueStage = 0;
+  unit.ignoredCount = 0;
+  unit.issueText = '';
+  const article = /^[aeiou]/i.test(def.label) ? 'an' : 'a';
+  addLog(`Repaired ${article} ${def.label.toLowerCase()}`, '-'+fmt(def.repairCost), 'var(--down)');
+  hapticTap();
+  saveState();
+  render();
+}
+
+// Session-count escalation per OPENING_SEQUENCE_SPEC.md's real-estate notes:
+// each time the player actually opens this tab and sees an unresolved issue
+// counts as one "shown and skipped" tick, not real-world elapsed time.
+function registerPropertyViewOpened(){
+  PROPERTY_DEFS.forEach(def=>{
+    (state.properties[def.id]||[]).forEach(unit=>{
+      if(unit.issueStage === 0 || unit.issueStage >= 3) return;
+      unit.ignoredCount++;
+      if(unit.ignoredCount >= def.escalationIgnores){
+        unit.issueStage++;
+        unit.ignoredCount = 0;
+      }
+    });
+  });
+  saveState();
+}
+
 /* ---------- 3. Micro-goals, streaks ---------- */
 const CHALLENGE_POOL = [
   {id:'trades3', type:'tradeCount', target:3, label:'Make 3 trades', reward:50},
@@ -1615,6 +1796,17 @@ function debugTriggerRugPull(){
   startRugPull();
   render();
 }
+function debugUnlockProperties(){
+  state.highestNetWorth = Math.max(state.highestNetWorth, 1000000);
+  state.cash += 2000000;
+  render();
+  showToast('Net worth + cash boosted for property testing');
+}
+function debugCollectRentNow(){
+  state.propertyRentActiveMs = state.propertyRentTargetMs;
+  maybeCollectPropertyRent();
+  render();
+}
 function debugSimulateOffline(){
   state.lastSeenAt = Date.now() - 3600*1000;
   saveState();
@@ -1686,7 +1878,12 @@ function holdingsValue(){
   });
   return v;
 }
-function netWorth(){ return state.cash + holdingsValue() - state.debt; }
+function propertyEquityValue(){
+  let v = 0;
+  PROPERTY_DEFS.forEach(def=>{ v += (state.properties[def.id]||[]).length * def.price; });
+  return v;
+}
+function netWorth(){ return state.cash + holdingsValue() + propertyEquityValue() - state.debt; }
 function unlockedTierIds(){
   const nw = state.highestNetWorth;
   return TIERS.filter(t=>nw >= t.unlockAt).map(t=>t.id);
@@ -1702,6 +1899,7 @@ function render(){
   const nw = netWorth();
   if(nw > state.highestNetWorth) state.highestNetWorth = nw;
   checkTierUnlocks();
+  checkPropertyUnlocks();
   document.getElementById('netWorthVal').textContent = fmt(nw);
   const delta = nw - state.dayStartNetWorth;
   const deltaEl = document.getElementById('netWorthDelta');
@@ -1720,6 +1918,7 @@ function render(){
   renderMarkets();
   renderHoldings();
   renderRetirement();
+  renderProperties();
   renderLog();
   renderStreak();
   renderChallenges();
@@ -1941,6 +2140,56 @@ function renderHoldings(){
           <div class="asset-price">${fmt(val)}</div>
           <div class="asset-change" style="color:${chg>=0?'var(--up)':'var(--down)'}">${chg>=0?'+':''}${chg.toFixed(1)}%</div>
         </div>
+      </div>`;
+  }).join('');
+}
+
+function renderProperties(){
+  const el = document.getElementById('propertiesList');
+  if(!el) return;
+  el.innerHTML = PROPERTY_DEFS.map(def=>{
+    const locked = state.highestNetWorth < def.unlockAt;
+    if(locked){
+      return `
+        <div class="property-type locked">
+          <div class="property-type-head">
+            <div class="property-type-icon locked">&#128274;</div>
+            <div>
+              <div class="property-type-name">${def.label}</div>
+              <div class="property-type-sub">Unlocks at $${def.unlockAt.toLocaleString()} net worth</div>
+            </div>
+          </div>
+        </div>`;
+    }
+    const units = state.properties[def.id]||[];
+    const atCap = units.length >= def.maxUnits;
+    const unitsHtml = units.map((unit, idx)=>{
+      const stage = unit.issueStage||0;
+      const statusClass = stage===0?'ok':stage>=3?'stage3':stage===2?'stage2':'stage1';
+      const statusLabel = stage===0 ? 'All clear' : PROPERTY_ISSUE_LABELS[stage];
+      return `
+        <div class="property-unit ${stage>0?'issue':''}">
+          <div class="property-unit-left">
+            <span class="property-unit-name">${def.label} #${idx+1}</span>
+            <span class="property-unit-status ${statusClass}">${statusLabel}${stage>0 && unit.issueText ? ' · '+unit.issueText : ''}</span>
+          </div>
+          <div class="property-unit-actions">
+            ${stage>0 ? `<button class="btn" onclick="fixPropertyIssue('${def.id}',${idx})">Fix (${fmt(def.repairCost)})</button>` : ''}
+            <button class="btn btn-ghost" onclick="sellProperty('${def.id}',${idx})">Sell</button>
+          </div>
+        </div>`;
+    }).join('');
+    return `
+      <div class="property-type">
+        <div class="property-type-head">
+          <div class="property-type-icon">${def.icon}</div>
+          <div>
+            <div class="property-type-name">${def.label}</div>
+            <div class="property-type-sub">${fmt(def.price)} · rent ${fmt(def.rent)}/collection · ${units.length}/${def.maxUnits} owned</div>
+          </div>
+          <button class="btn btn-primary" style="margin-left:auto;" ${atCap?'disabled':''} onclick="buyProperty('${def.id}')">${atCap?'Max owned':'Buy'}</button>
+        </div>
+        ${unitsHtml ? `<div class="property-units">${unitsHtml}</div>` : ''}
       </div>`;
   }).join('');
 }
@@ -2767,6 +3016,7 @@ function switchView(name){
   document.getElementById('view-'+name).classList.add('active');
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active', b.dataset.view===name));
   if(name === 'markets') tutorialOnEvent('switchMarkets');
+  if(name === 'properties') registerPropertyViewOpened();
 }
 let toastT = null;
 function showToast(msg){
