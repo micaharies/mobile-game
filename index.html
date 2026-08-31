@@ -1194,6 +1194,13 @@ function runOfflineRecap(){
     state.prices[a.id] = Math.min(before * (1 + maxSwing), Math.max(before * (1 - maxSwing), state.prices[a.id]));
   });
 
+  // Rent is a real passive-income stream — it should keep paying out whether
+  // you're watching or not, same as debt interest above. Maintenance stays
+  // session-scored on purpose (unaffected by real elapsed time, see
+  // registerPropertyViewOpened), so this only pays out whatever each unit's
+  // *current* issue stage already allows, same math as a live collection.
+  const rentCollected = collectOfflinePropertyRent(elapsedMs);
+
   const nwAfter = netWorth();
   let biggestMover = null, biggestPct = 0;
   allAssets().forEach(a=>{
@@ -1203,7 +1210,44 @@ function runOfflineRecap(){
   });
 
   saveState();
-  return {nwBefore, nwAfter, biggestMover, biggestPct, elapsedMs};
+  return {nwBefore, nwAfter, biggestMover, biggestPct, elapsedMs, rentCollected};
+}
+
+// Estimates whole rent cycles from the average cadence rather than
+// replaying each one with fresh random jitter — a background catch-up
+// calculation doesn't need that precision, and this stays O(1) regardless
+// of how long the player was away (unlike the capped tick-by-tick price sim
+// above).
+function collectOfflinePropertyRent(elapsedMs){
+  const avgCycleMs = (PROPERTY_RENT_MIN_ACTIVE_MS + PROPERTY_RENT_MAX_ACTIVE_MS) / 2;
+  const remainingToFirstCycle = Math.max(0, state.propertyRentTargetMs - state.propertyRentActiveMs);
+  let cycles = 0;
+  if(elapsedMs >= remainingToFirstCycle){
+    cycles = 1;
+    const afterFirst = elapsedMs - remainingToFirstCycle;
+    cycles += Math.floor(afterFirst / avgCycleMs);
+    state.propertyRentActiveMs = afterFirst % avgCycleMs;
+    state.propertyRentTargetMs = randBetween(PROPERTY_RENT_MIN_ACTIVE_MS, PROPERTY_RENT_MAX_ACTIVE_MS);
+  } else {
+    state.propertyRentActiveMs += elapsedMs;
+  }
+  if(cycles <= 0) return 0;
+  let total = 0;
+  PROPERTY_DEFS.forEach(def=>{
+    const units = state.properties[def.id]||[];
+    if(!units.length) return;
+    let perCycle = 0;
+    units.forEach(unit=>{
+      const mult = unit.issueStage >= 3 ? 0 : unit.issueStage === 2 ? 0.5 : 1;
+      perCycle += def.rent * mult;
+    });
+    total += perCycle * cycles;
+  });
+  if(total > 0){
+    state.cash += total;
+    addLog(`Rent collected while away (${cycles} cycle${cycles>1?'s':''})`, '+'+fmt(total), 'var(--up)');
+  }
+  return total;
 }
 
 function showRecap(recap){
@@ -1212,10 +1256,14 @@ function showRecap(recap){
   const moverLine = recap.biggestMover
     ? `<div class="recap-mover">Biggest mover: ${assetName(recap.biggestMover)} ${recap.biggestPct>=0?'up':'down'} ${Math.abs(recap.biggestPct).toFixed(1)}%</div>`
     : '';
+  const rentLine = recap.rentCollected > 0
+    ? `<div class="recap-mover">Rent collected while away: +${fmt(recap.rentCollected)}</div>`
+    : '';
   document.getElementById('recapBody').innerHTML = `
     <div class="recap-stat" style="color:${deltaColor}">${nwDelta>=0?'+':''}${fmt(nwDelta)}</div>
     <div class="recap-sub">net worth while you were gone</div>
-    ${moverLine}`;
+    ${moverLine}
+    ${rentLine}`;
   document.getElementById('recapOverlay').classList.add('show');
 }
 
