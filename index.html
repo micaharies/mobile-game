@@ -609,6 +609,13 @@ const RUGX_PULL_SUSPEND_MAX_TICKS = 500; // ~10min
 // to keep this system self-contained for v1.
 const PROPERTY_RENT_MIN_ACTIVE_MS = 3 * 60 * 1000;
 const PROPERTY_RENT_MAX_ACTIVE_MS = 6 * 60 * 1000;
+// Offline rent uses diminishing returns, not a hard cutoff — buying out
+// every property and walking away for days was paying out huge unattended
+// gains, but a flat cliff felt too abrupt. This saturates smoothly: full
+// real-time credit for a normal same-day gap, noticeably less for a full
+// day away, and asymptotically caps out (never fully stops, but a week away
+// earns barely more than one day away) — see collectOfflinePropertyRent.
+const PROPERTY_OFFLINE_SATURATION_HOURS = 24;
 const PROPERTY_DEFS = [
   { id:'apartment', label:'Apartment', unlockAt:100000, price:40000, maxUnits:6, rent:480,
     issueChancePerTick:0.0015, escalationIgnores:2, repairCost:1200, icon:'🏢',
@@ -1220,18 +1227,19 @@ function runOfflineRecap(){
 // above).
 function collectOfflinePropertyRent(elapsedMs){
   const avgCycleMs = (PROPERTY_RENT_MIN_ACTIVE_MS + PROPERTY_RENT_MAX_ACTIVE_MS) / 2;
-  const remainingToFirstCycle = Math.max(0, state.propertyRentTargetMs - state.propertyRentActiveMs);
-  let cycles = 0;
-  if(elapsedMs >= remainingToFirstCycle){
-    cycles = 1;
-    const afterFirst = elapsedMs - remainingToFirstCycle;
-    cycles += Math.floor(afterFirst / avgCycleMs);
-    state.propertyRentActiveMs = afterFirst % avgCycleMs;
-    state.propertyRentTargetMs = randBetween(PROPERTY_RENT_MIN_ACTIVE_MS, PROPERTY_RENT_MAX_ACTIVE_MS);
-  } else {
-    state.propertyRentActiveMs += elapsedMs;
-  }
-  if(cycles <= 0) return 0;
+  // Saturating exponential: f(t) = H*(1 - e^(-t/H)) with H in hours. Slope at
+  // t=0 is 1 (real-time credit for a short gap), and f(t) asymptotically
+  // approaches H as t grows — H is both the "characteristic" timescale and
+  // the effective ceiling, so one constant tunes the whole curve.
+  const elapsedHours = elapsedMs / 3600000;
+  const effectiveHours = PROPERTY_OFFLINE_SATURATION_HOURS * (1 - Math.exp(-elapsedHours / PROPERTY_OFFLINE_SATURATION_HOURS));
+  const effectiveCycles = (effectiveHours * 3600000) / avgCycleMs;
+  // The live scheduler's in-progress countdown doesn't map cleanly onto a
+  // fractional/diminished cycle count — just start it fresh rather than try
+  // to preserve partial progress across the gap.
+  state.propertyRentActiveMs = 0;
+  state.propertyRentTargetMs = randBetween(PROPERTY_RENT_MIN_ACTIVE_MS, PROPERTY_RENT_MAX_ACTIVE_MS);
+  if(effectiveCycles <= 0) return 0;
   let total = 0;
   PROPERTY_DEFS.forEach(def=>{
     const units = state.properties[def.id]||[];
@@ -1241,11 +1249,11 @@ function collectOfflinePropertyRent(elapsedMs){
       const mult = unit.issueStage >= 3 ? 0 : unit.issueStage === 2 ? 0.5 : 1;
       perCycle += def.rent * mult;
     });
-    total += perCycle * cycles;
+    total += perCycle * effectiveCycles;
   });
   if(total > 0){
     state.cash += total;
-    addLog(`Rent collected while away (${cycles} cycle${cycles>1?'s':''})`, '+'+fmt(total), 'var(--up)');
+    addLog('Rent collected while away', '+'+fmt(total), 'var(--up)');
   }
   return total;
 }
