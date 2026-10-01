@@ -296,6 +296,27 @@ footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:1
 /* --- 5. Debug mode --- */
 #debugRow{display:none;}
 #debugRow button{font-size:11px; color:var(--text-faint); text-decoration:underline;}
+
+/* ===== REPLAYABILITY_SPEC.md additions ===== */
+/* Perk draft — same card style as the live-event banner, but docked above
+   the nav instead of the top shelf so it never fights a rumor or flash crash
+   banner for the same spot. Sits under every .overlay (z 50) on purpose. */
+.perk-draft-banner{position:fixed; bottom:calc(66px + env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%) translateY(8px); width:calc(100% - 24px); max-width:456px; background:var(--surface1); border:1px solid var(--cash-dim); border-left:3px solid var(--cash); border-radius:12px; padding:12px 14px; z-index:44; opacity:0; pointer-events:none; transition:opacity .25s, transform .25s; box-shadow:0 8px 24px rgba(0,0,0,.4);}
+.perk-draft-banner.show{opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto;}
+.perk-draft-head{display:flex; justify-content:space-between; align-items:baseline; gap:10px;}
+.perk-draft-later{font-size:11px; color:var(--text-faint); text-decoration:underline; flex-shrink:0;}
+.perk-option{display:flex; align-items:center; gap:10px; width:100%; text-align:left; background:var(--surface2); border:1px solid var(--border); border-radius:9px; padding:8px 10px; margin-top:6px;}
+.perk-option .picon{font-size:18px; flex-shrink:0; width:22px; text-align:center;}
+.perk-option .pname{font-size:12.5px; font-weight:600;}
+.perk-option .pdesc{font-size:11px; color:var(--text-faint); margin-top:1px; line-height:1.35;}
+.perk-chips{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;}
+.perk-chip{font-size:11px; border:1px solid var(--cash-dim); color:var(--cash); border-radius:20px; padding:3px 10px; background:var(--surface2);}
+.lev-source{font-size:10.5px; color:var(--text-faint); margin:-4px 0 8px;}
+.lev-insider{font-size:11px; color:var(--cash); margin:-4px 0 8px;}
+.side-toggle button.active.lev-opt{background:color-mix(in srgb, var(--cash) 22%, var(--surface2)); border-color:var(--cash); color:var(--cash);}
+#runOverOverlay{z-index:60;}
+.run-score{font-family:var(--font-mono); font-size:34px; font-weight:700; text-align:center; color:var(--cash); margin:12px 0 2px;}
+.run-score-sub{font-size:11px; color:var(--text-faint); text-align:center; margin-bottom:14px;}
 </style>
 </head>
 <body>
@@ -313,6 +334,8 @@ footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:1
 
 <div class="live-event-banner" id="liveEventBanner">
   <div class="lev-headline" id="levHeadline"></div>
+  <div class="lev-source" id="levSource"></div>
+  <div class="lev-insider" id="levInsider" style="display:none;"></div>
   <div class="lev-row">
     <button class="lev-btn" onclick="liveEventChoice('buy')">Buy now</button>
     <button class="lev-btn" onclick="liveEventChoice('wait')">Wait</button>
@@ -326,6 +349,14 @@ footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:1
   <div class="fcb-sub"></div>
 </div>
 
+<div class="perk-draft-banner" id="perkDraftBanner">
+  <div class="perk-draft-head">
+    <div class="lev-headline">New tier, new vices. Pick one.</div>
+    <button class="perk-draft-later" onclick="deferPerkDraft()">Decide later</button>
+  </div>
+  <div id="perkDraftOptions"></div>
+</div>
+
 <header>
   <div class="networth-row">
     <div>
@@ -337,13 +368,14 @@ footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:1
   </div>
   <div class="subrow">
     <div>Cash: <b id="cashVal">$0</b></div>
-    <div class="debt-tag" id="debtRow" style="display:none;">Debt: <b id="debtVal">$0</b></div>
+    <div class="debt-tag" id="debtRow" style="display:none;">Debt: <b id="debtVal">$0</b> <span id="loanCount"></span></div>
   </div>
   <div class="streak-badge" id="streakBadge"></div>
 </header>
 
 <main>
   <div class="view active" id="view-portfolio">
+    <div id="perksSection"></div>
     <h2>Challenges</h2>
     <div id="challengesList"></div>
     <h2>Holdings</h2>
@@ -371,7 +403,7 @@ footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:1
       <button id="terminalModeBtn" onclick="toggleTerminalMode()">Terminal mode: Off</button>
       <button onclick="replayIntro()">Replay intro</button> · <button onclick="replayTutorial()">Replay tutorial</button> · <button onclick="resetGame()">Reset save data</button>
     </footer>
-    <div id="debugRow"><button onclick="debugSimulateOffline()">Debug: simulate 1hr offline</button><button onclick="debugTriggerFlashCrash()">Debug: trigger flash crash</button><button onclick="debugTriggerRugPull()">Debug: trigger rug pull</button><button onclick="debugUnlockProperties()">Debug: unlock properties</button><button onclick="debugCollectRentNow()">Debug: collect rent now</button></div>
+    <div id="debugRow"><button onclick="debugSimulateOffline()">Debug: simulate 1hr offline</button><button onclick="debugTriggerFlashCrash()">Debug: trigger flash crash</button><button onclick="debugTriggerRugPull()">Debug: trigger rug pull</button><button onclick="debugUnlockProperties()">Debug: unlock properties</button><button onclick="debugCollectRentNow()">Debug: collect rent now</button><button onclick="debugRetireNow()">Debug: retire now</button><button onclick="debugBustNow()">Debug: Vinnie collects</button><button onclick="debugPerkDraft()">Debug: perk draft</button></div>
   </div>
 </main>
 
@@ -394,6 +426,10 @@ footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:1
     <div class="side-toggle" id="tradeSideToggle" style="display:none;">
       <button class="side-yes" onclick="setTradeSide('yes')">Yes</button>
       <button class="side-no" onclick="setTradeSide('no')">No</button>
+    </div>
+    <div class="side-toggle" id="tradeLeverageToggle" style="display:none;">
+      <button class="lev-opt" data-lev="1" onclick="setTradeLeverage(1)">1x</button>
+      <button class="lev-opt" data-lev="2" onclick="setTradeLeverage(2)">2x margin</button>
     </div>
     <div class="trade-chart" id="tradeChart"></div>
     <div class="trade-stats" id="tradeStats"></div>
@@ -430,10 +466,29 @@ footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:1
       <div class="oicon">🧹</div>
       <div class="otext"><div class="otitle">Community service</div><div class="osub">A bit more effort, better payout</div></div>
     </button>
+    <button class="recover-option" id="garyOption" style="display:none;" onclick="callInGaryFavor()">
+      <div class="oicon">🎰</div>
+      <div class="otext"><div class="otitle">Call in Gary's favor</div><div class="osub">Instant $500, no interest, Vinnie never hears about it</div></div>
+    </button>
     <button class="recover-option" onclick="takeLoan()">
       <div class="oicon">🦈</div>
-      <div class="otext"><div class="otitle">Loan shark bailout</div><div class="osub">Instant $500, +8% interest weekly</div></div>
+      <div class="otext"><div class="otitle">Loan shark bailout</div><div class="osub" id="loanOptionSub">Instant $500, +8% interest weekly</div></div>
     </button>
+  </div>
+</div>
+
+<!-- Run over (retired or busted) -->
+<div class="overlay" id="runOverOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="crash-icon" id="runOverIcon"></div>
+    <div class="tut-title" style="text-align:center;" id="runOverTitle"></div>
+    <p class="tut-text" style="text-align:center;" id="runOverEpitaph"></p>
+    <div class="run-score" id="runOverScore"></div>
+    <div class="run-score-sub" id="runOverScoreSub"></div>
+    <div class="trade-stats" id="runOverStats"></div>
+    <div class="perk-chips" id="runOverPerks"></div>
+    <button class="btn btn-primary btn-block" style="margin-top:10px;" onclick="startNewRun()">New run</button>
   </div>
 </div>
 
@@ -459,7 +514,7 @@ footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:1
     <div class="sheet-handle"></div>
     <div class="crash-icon">💥</div>
     <div class="tut-title" style="text-align:center;">Everything just crashed</div>
-    <p class="tut-text" style="text-align:center;">This happens. Markets crash hard and fast — no warnings, no stop-losses. If your cash and holdings both bottom out, you'll get real comeback options: begging, community service, or a loan shark bailout. Nothing here is permanent — not even broke.</p>
+    <p class="tut-text" style="text-align:center;">This happens. Markets crash hard and fast — no warnings, no stop-losses. If your cash and holdings both bottom out, you'll get real comeback options: begging, community service, or a loan shark bailout. Broke isn't permanent. Owing Vinnie too much is: max out his loans and the next time you go broke, he collects and the run's over.</p>
     <button class="btn btn-primary btn-block" style="margin-top:16px;" onclick="closeOverlay('crashOverlay')">Ride it out</button>
   </div>
 </div>
@@ -628,6 +683,71 @@ const PROPERTY_DEFS = [
     issues:['Foundation crack spotted during inspection', 'Storm damage to the roof', 'Tenant reports a mold issue'] },
 ];
 const PROPERTY_ISSUE_LABELS = ['', 'Issue reported', 'Worsening — rent halved', 'Code violation — rent stopped'];
+
+// --- REPLAYABILITY_SPEC.md: runs, perks, rumor sources ---
+// A run ends one of two ways: retiring (a RETIRE_TIERS amount parked in safe
+// havens) or busting (going broke after maxing out Vinnie). Begging and
+// community service stay free and unlimited — only a player who chose to
+// lean on the loan shark can lose a run.
+const LOAN_SHARK_MAX_LOANS = 3;
+const LOAN_SHARK_MAX_DEBT = 5000;
+// Score = net worth / 10, scaled by how far you pushed before retiring. A bust
+// only gets a quarter-credit on its peak — so busting at $180k still beats
+// retiring Comfortable, but not retiring Retired. That gap is the whole
+// "cash out now or push for Legend" decision.
+const RUN_SCORE_TIER_MULT = {Comfortable:1, Retired:1.5, Legend:2.5};
+const RUN_SCORE_BUST_MULT = 0.25;
+const RUN_HISTORY_MAX = 20;
+const PERK_DRAFT_SIZE = 3;
+const DIAMOND_HANDS_MIN_HOLD_MS = 5 * 60 * 1000;
+const DAY_TRADER_DECAY_AFTER_MS = 10 * 60 * 1000;
+const DAY_TRADER_DECAY_PER_MIN = 0.01;
+const DAY_TRADER_CHALLENGE_MULT = 3;
+const MARGIN_LEVERAGE = 2;
+const MARGIN_CALL_EQUITY_FRAC = 0.1; // liquidated once equity falls below this fraction of the loan
+const INFLUENCER_NUDGE_PER_DOLLAR = 1 / 50000;
+const INFLUENCER_NUDGE_MAX = 0.03;
+// Without a cooldown, buy (price nudges up) -> sell -> repeat is free money.
+const INFLUENCER_COOLDOWN_MS = 60 * 1000;
+const GARY_FAVOR_AMOUNT = 500;
+const VINNIE_NEPHEW_EXTRA_LOANS = 2;
+// When a source is wrong, this fraction of the time the move just fizzles
+// instead of going the opposite way.
+const RUMOR_WRONG_FLAT_CHANCE = 0.35;
+
+// Hidden reliability = chance the rumor's claimed direction is right. Never
+// shown in the UI — players are meant to learn these over runs.
+const RUMOR_SOURCES = [
+  {label:"Gary's cousin", reliability:0.3},
+  {label:'a Reddit thread', reliability:0.4},
+  {label:'a guy in a Lambo', reliability:0.5},
+  {label:'an intern who overheard something', reliability:0.65},
+  {label:'an SEC filing leak', reliability:0.8},
+];
+
+const PERK_DEFS = [
+  {id:'insider', icon:'👴', name:'Insider Uncle', desc:"Rumors about one asset always come with the true direction. Don't ask how he knows."},
+  {id:'diamond', icon:'💎', name:'Diamond Hands', desc:'Positions held 5+ min take half damage from flash crashes.'},
+  {id:'margin', icon:'📐', name:'Margin Account', desc:'Buy risky assets with 2x leverage. Wipes you out twice as fast, too.'},
+  {id:'gary', icon:'🎰', name:'Gary Owes You', desc:"Pit boss Gary owes you one. Next time you're broke he pays up $500 — no interest, no Vinnie."},
+  {id:'taxlawyer', icon:'⚖️', name:'Tax Lawyer', desc:'Safe havens grow at double their usual drift. Perfectly legal, he says.'},
+  {id:'influencer', icon:'📱', name:'Influencer', desc:'Your buys nudge meme coin prices up a little. Your followers are not okay.'},
+  {id:'daytrader', icon:'⏱️', name:'Day Trader', desc:'Challenges pay 3x, but anything held over 10 min bleeds 1% a minute.'},
+  {id:'nephew', icon:'🦈', name:"Vinnie's Nephew", desc:'Vinnie lends you 2 extra loans before he comes to collect. Family discount.'},
+];
+
+const RETIRE_EPITAPHS = {
+  Comfortable: 'Bought a boat. It\'s a small boat. It\'s fine.',
+  Retired: 'Gary sends a Christmas card now. You don\'t open it.',
+  Legend: 'Three casinos named a wing after your losses. You finally don\'t care.',
+};
+const BUST_EPITAPHS = [
+  'Vinnie collects. He took the terminal. And the chair. And the good pen.',
+  "Here lies a trader who said 'one more loan' at least three times.",
+  'Vinnie collects. Your brother still won\'t pick up.',
+  'Vinnie collects. The airport fry stand is still not hiring.',
+  'Vinnie collects. Somewhere, Gary is smiling.',
+];
 const PREDICTION_RESOLVE_MIN_S = 60;
 const PREDICTION_RESOLVE_MAX_S = 90;
 
@@ -674,9 +794,9 @@ const ASSET_DEFS = [
   {id:'aapl', name:'AAPL', sub:'Big tech stock', tier:'stocks', type:'stock', price:180, vol:0.006, drift:0.0001, shares:15200000000, icon:'A', color:'var(--safe)'},
   {id:'gmtx', name:'GMTX', sub:'Auto manufacturer', tier:'stocks', type:'stock', price:64, vol:0.008, drift:0.0001, shares:480000000, icon:'G', color:'var(--safe)'},
   {id:'ncla', name:'NCLA', sub:'Cruise line stock', tier:'stocks', type:'stock', price:22, vol:0.012, drift:0, meanReversion:0.02, meanPrice:22, meanReversionBelow:5, shares:240000000, icon:'N', color:'var(--safe)'},
-  {id:'doge', name:'DOGO', sub:'Meme crypto', tier:'crypto', type:'crypto', price:0.6, vol:0.05, drift:-0.0002, shares:140000000000, icon:'D', color:'var(--cash)'},
+  {id:'doge', name:'DOGO', sub:'Meme crypto', tier:'crypto', type:'crypto', meme:true, price:0.6, vol:0.05, drift:-0.0002, shares:140000000000, icon:'D', color:'var(--cash)'},
   {id:'btcx', name:'BTCX', sub:'Flagship crypto', tier:'crypto', type:'crypto', price:420, vol:0.03, drift:0.0002, shares:19000000, icon:'B', color:'var(--cash)'},
-  {id:'rugx', name:'RUGX', sub:'EXTRA RISKY · unhinged meme coin, no floor no ceiling', tier:'crypto', type:'crypto', price:150, vol:0.14, drift:0, meanReversion:0.02, meanReversionChance:0.3, meanPrice:150, shockMult:12, shares:900000000, icon:'☠', color:'var(--down)'},
+  {id:'rugx', name:'RUGX', sub:'EXTRA RISKY · unhinged meme coin, no floor no ceiling', tier:'crypto', type:'crypto', meme:true, price:150, vol:0.14, drift:0, meanReversion:0.02, meanReversionChance:0.3, meanPrice:150, shockMult:12, shares:900000000, icon:'☠', color:'var(--down)'},
   {id:'rain', name:'Rain tomorrow', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.5, vol:0.04, drift:0, icon:'?', color:'var(--down)'},
   {id:'elec', name:'Mayor wins reelection', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.62, vol:0.035, drift:0, icon:'?', color:'var(--down)'},
   {id:'sports', name:'Home team wins tonight', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.55, vol:0.038, drift:0, icon:'?', color:'var(--down)'},
@@ -836,6 +956,30 @@ function defaultState(){
     propertyRentTargetMs: randBetween(PROPERTY_RENT_MIN_ACTIVE_MS, PROPERTY_RENT_MAX_ACTIVE_MS),
     debugMode: false,
     terminalMode: false,
+    // --- REPLAYABILITY_SPEC.md ---
+    run: defaultRun(1),
+    runHistory: [],
+  };
+}
+
+// Everything scoped to a single run (start -> retire/bust). Per-run stats for
+// the summary card live here; the prices/holdings/etc. above are reset
+// wholesale by startNewRun() anyway.
+function defaultRun(number){
+  return {
+    number,
+    startedAt: Date.now(),
+    timesBroke: 0,
+    loansTaken: 0,
+    bestTrade: null,          // {profit, asset}
+    perks: [],
+    pendingDrafts: [],        // one entry per earned draft: null until shown, then an array of PERK_DEFS ids
+    insiderAssetId: null,
+    garyFavorUsed: false,
+    heldSince: {},            // asset id -> ms timestamp the current position was opened
+    marginLoan: {},           // asset id -> $ borrowed against that position
+    influencerLastAt: {},
+    over: null,               // set by endRun()
   };
 }
 
@@ -947,6 +1091,12 @@ function loadState(){
   }
   if(state.debugMode === undefined) state.debugMode = false;
   if(state.terminalMode === undefined) state.terminalMode = false;
+  // REPLAYABILITY_SPEC.md — an existing save just becomes run #1, already in
+  // progress. Tiers it already unlocked don't retroactively grant drafts.
+  if(state.run === undefined) state.run = defaultRun(1);
+  const runDefaults = defaultRun(state.run.number || 1);
+  Object.keys(runDefaults).forEach(k=>{ if(state.run[k] === undefined) state.run[k] = runDefaults[k]; });
+  if(state.runHistory === undefined) state.runHistory = [];
 }
 
 function saveState(){ state.lastSeenAt = Date.now(); localStorage.setItem(SAVE_KEY, JSON.stringify(state)); }
@@ -974,6 +1124,7 @@ function toggleTerminalMode(){
 
 /* ---------- price simulation ---------- */
 function tickPrices(){
+  if(state.run.over) return; // the run's locked — the summary card is up until "New run"
   let bigMove = null;
   let scriptedAssetThisTick = null; // an asset id, or 'ALL' for a market-wide crash step
   if((state.cryptoLaunchQueue && state.cryptoLaunchQueue.length) || state.crashTicksLeft > 0){
@@ -1020,7 +1171,7 @@ function tickPrices(){
     const revert = (a.meanReversion && belowRescue && !reversionSuspended && reversionRoll) ? a.meanReversion * Math.log(a.meanPrice / state.prices[a.id]) : 0;
     const shockMult = a.shockMult || 6;
     const shock = (Math.random() < effVol * 0.15) ? (Math.random()<0.5?-1:1) * effVol * shockMult : 0;
-    const change = a.drift + revert + (Math.random()*2-1) * effVol + shock;
+    const change = effDrift(a) + revert + (Math.random()*2-1) * effVol + shock;
     let p = state.prices[a.id] * (1 + change);
     if(a.type === 'prediction') p = Math.min(0.97, Math.max(0.03, p));
     else p = Math.max(0.01, p);
@@ -1038,6 +1189,8 @@ function tickPrices(){
   Object.keys(state.meanReversionSuspendedTicks).forEach(id=>{
     if(state.meanReversionSuspendedTicks[id] > 0) state.meanReversionSuspendedTicks[id]--;
   });
+  applyDayTraderDecay();
+  checkMarginCalls();
   updateSessionPriceExtremes();
   recordSessionPriceHistory();
   applyOnboardingBoost();
@@ -1131,6 +1284,7 @@ function checkTierUnlocks(){
       }
       if(t.id === 'crypto') triggerCryptoLaunch();
       if(t.unlockAt > 0) progressChallenge('tierUnlock');
+      if(t.unlockAt > 0) queuePerkDraft(); // REPLAYABILITY_SPEC.md C1 — shown after the fanfare, see renderPerkDraft
     }
   });
 }
@@ -1157,6 +1311,7 @@ function accrueDebt(){
 // through; they simply resume on the next real tick once the tab is active.
 function runOfflineRecap(){
   if(!state.lastSeenAt) return null;
+  if(state.run.over) return null; // a finished run's market is frozen, nothing to recap
   const elapsedMs = Date.now() - state.lastSeenAt;
   if(elapsedMs < OFFLINE_RECAP_THRESHOLD_MS) return null;
 
@@ -1170,7 +1325,7 @@ function runOfflineRecap(){
   for(let i=0; i<simTicks; i++){
     allAssets().forEach(a=>{
       const shock = (Math.random() < a.vol * 0.15) ? (Math.random()<0.5?-1:1) * a.vol * 6 : 0;
-      const change = a.drift + (Math.random()*2-1) * a.vol + shock;
+      const change = effDrift(a) + (Math.random()*2-1) * a.vol + shock;
       let p = state.prices[a.id] * (1 + change);
       if(a.type === 'prediction') p = Math.min(0.97, Math.max(0.03, p));
       else p = Math.max(0.01, p);
@@ -1181,7 +1336,7 @@ function runOfflineRecap(){
   const remainingTicks = ticksElapsed - simTicks;
   if(remainingTicks > 0){
     allAssets().forEach(a=>{
-      const drift = a.drift * remainingTicks;
+      const drift = effDrift(a) * remainingTicks;
       const vol = a.vol * Math.sqrt(remainingTicks);
       const change = drift + (Math.random()*2-1) * vol;
       let p = state.prices[a.id] * (1 + change);
@@ -1207,6 +1362,7 @@ function runOfflineRecap(){
   // registerPropertyViewOpened), so this only pays out whatever each unit's
   // *current* issue stage already allows, same math as a live collection.
   const rentCollected = collectOfflinePropertyRent(elapsedMs);
+  checkMarginCalls(); // a leveraged position can blow through its loan while you're away
 
   const nwAfter = netWorth();
   let biggestMover = null, biggestPct = 0;
@@ -1289,16 +1445,19 @@ function closeRecap(){
 // Deliberately no prediction-type assets here — they already have their own
 // periodic auto-resolve mechanic (2b below), and letting both systems own
 // the same asset's price at once would stomp on each other's tracking.
+// Each template has a bullish and a bearish claim (REPLAYABILITY_SPEC.md A1)
+// so the headline itself says which way to lean; whether it's *right* comes
+// down to the attached RUMOR_SOURCES reliability.
 const MARKET_EVENT_TEMPLATES = [
-  {assetId:'aapl', headline:'Leaked memo hints at big AAPL news'},
-  {assetId:'gmtx', headline:'GMTX recall rumors swirling'},
-  {assetId:'ncla', headline:'NCLA options activity spikes — someone knows something'},
-  {assetId:'doge', headline:'Rumor: DOGO about to pump'},
-  {assetId:'btcx', headline:'Whale wallet spotted accumulating BTCX'},
-  {assetId:'rugx', headline:'RUGX going parabolic — influencers are all in'},
-  {assetId:'eurusd', headline:'Central bank chatter moves EUR/USD desks'},
+  {assetId:'aapl', up:'Leaked memo hints at a blowout AAPL quarter', down:'Leaked memo hints AAPL is about to miss, badly'},
+  {assetId:'gmtx', up:'GMTX rumored to land a massive fleet contract', down:'GMTX recall rumors swirling'},
+  {assetId:'ncla', up:'NCLA call buying spikes — someone knows something', down:'NCLA put buying spikes — someone knows something'},
+  {assetId:'doge', up:'Rumor: DOGO about to pump', down:'Rumor: DOGO whales about to dump'},
+  {assetId:'btcx', up:'Whale wallet spotted accumulating BTCX', down:'Whale wallet spotted moving BTCX onto exchanges'},
+  {assetId:'rugx', up:'RUGX going parabolic — influencers are all in', down:'RUGX devs "taking a break" from the Discord'},
+  {assetId:'eurusd', up:'Central bank chatter: EUR/USD about to rally', down:'Central bank chatter: EUR/USD about to slide'},
 ];
-let liveEvent = null; // {assetId, headline, remainingTicks, perTickMult, startPrice, choice}
+let liveEvent = null; // {assetId, headline, source, claim, trueDir, remainingTicks, perTickMult, startPrice, choice}
 let nextLiveEventAt = Date.now() + randBetween(LIVE_EVENT_MIN_GAP_MS, LIVE_EVENT_MAX_GAP_MS);
 
 function maybeTriggerLiveEvent(){
@@ -1315,23 +1474,32 @@ function maybeTriggerLiveEvent(){
   });
   if(!pool.length) return; // nothing unlocked yet to build a rumor around
   const tmpl = pool[Math.floor(Math.random()*pool.length)];
-  // Deliberately not always the same "correct" choice — big up, big down, or
-  // a near-flat fake-out are all in play, so acting/waiting/ignoring each win
-  // sometimes.
-  const roll = Math.random();
-  const outcomeMult = roll < 0.4 ? (1 + randBetween(0.15, 0.5))
-                     : roll < 0.8 ? (1 - randBetween(0.15, 0.5))
+  // The outcome is still a roll, but now it's biased by who's talking: a
+  // reliable source is usually right about the direction, a bad one usually
+  // isn't (and sometimes the whole thing just fizzles). Over many rumors
+  // that's learnable, which is the point.
+  const claim = Math.random() < 0.5 ? 'up' : 'down';
+  const source = RUMOR_SOURCES[Math.floor(Math.random()*RUMOR_SOURCES.length)];
+  const trueDir = Math.random() < source.reliability ? claim
+                : Math.random() < RUMOR_WRONG_FLAT_CHANCE ? 'flat'
+                : (claim === 'up' ? 'down' : 'up');
+  const outcomeMult = trueDir === 'up' ? (1 + randBetween(0.15, 0.5))
+                     : trueDir === 'down' ? (1 - randBetween(0.15, 0.5))
                      : (1 + randBetween(-0.05, 0.05));
   const totalTicks = Math.round(LIVE_EVENT_WINDOW_S*1000/TICK_MS);
+  const headline = tmpl[claim];
   liveEvent = {
     assetId: tmpl.assetId,
-    headline: tmpl.headline,
+    headline,
+    source: source.label,
+    claim,
+    trueDir,
     remainingTicks: totalTicks,
     perTickMult: Math.pow(outcomeMult, 1/totalTicks),
     startPrice: state.prices[tmpl.assetId],
     choice: null,
   };
-  pushHeadline(tmpl.headline, null);
+  pushHeadline(`${headline} (via ${source.label})`, null);
   renderLiveEventBanner();
   nextLiveEventAt = Date.now() + randBetween(LIVE_EVENT_MIN_GAP_MS, LIVE_EVENT_MAX_GAP_MS);
 }
@@ -1347,6 +1515,7 @@ function liveEventChoice(choice){
       const prevUnits = state.holdings[liveEvent.assetId]||0;
       const prevCost = state.costBasis[liveEvent.assetId]||0;
       const newUnits = amt/price;
+      noteHoldStart(liveEvent.assetId, prevUnits);
       state.cash -= amt;
       state.holdings[liveEvent.assetId] = prevUnits + newUnits;
       state.costBasis[liveEvent.assetId] = state.holdings[liveEvent.assetId]>0 ? ((prevCost*prevUnits)+(price*newUnits))/state.holdings[liveEvent.assetId] : price;
@@ -1374,6 +1543,9 @@ function resolveLiveEvent(){
     headline = `${assetName(asset)} settles ${dir} ${Math.abs(pct).toFixed(1)}% — most people never even saw the rumor`;
   }
   pushHeadline(headline, dir);
+  // Close the loop on the source so players can actually learn who to trust.
+  const sourceRight = liveEvent.trueDir === liveEvent.claim;
+  pushHeadline(sourceRight ? `Turns out ${liveEvent.source} was right` : `Turns out ${liveEvent.source} was wrong${liveEvent.trueDir==='flat'?' — nothing happened':''}`, null);
   hideLiveEventBanner();
   liveEvent = null;
 }
@@ -1381,6 +1553,15 @@ function resolveLiveEvent(){
 function renderLiveEventBanner(){
   if(!liveEvent) return;
   document.getElementById('levHeadline').textContent = liveEvent.headline;
+  document.getElementById('levSource').textContent = 'Source: ' + liveEvent.source;
+  const insiderEl = document.getElementById('levInsider');
+  if(hasPerk('insider') && liveEvent.assetId === state.run.insiderAssetId){
+    const tip = {up:"it's going up. Trust me.", down:"it's going down. Get out.", flat:"nothing's happening. Relax."}[liveEvent.trueDir];
+    insiderEl.textContent = `👴 Uncle texts: "${tip}"`;
+    insiderEl.style.display = 'block';
+  } else {
+    insiderEl.style.display = 'none';
+  }
   document.getElementById('liveEventBanner').classList.add('show');
   updateLiveEventTimer();
 }
@@ -1432,6 +1613,7 @@ function resolveDuePredictions(){
     state.costBasis[a.id] = 0;
     state.holdingsNo[a.id] = 0;
     state.costBasisNo[a.id] = 0;
+    delete state.run.heldSince[a.id];
     const freshPrice = randBetween(0.4, 0.6);
     state.prices[a.id] = freshPrice;
     state.startPrices[a.id] = freshPrice;
@@ -1534,6 +1716,7 @@ function applyFlashCrashTick(){
   let owns = null;
   if(fc.phase === 'slide'){
     ASSET_DEFS.forEach(a=>{ state.prices[a.id] = Math.max(0.01, state.prices[a.id] * fc.slidePerTick); });
+    applyDiamondHands(fc.slidePerTick);
     owns = 'ALL';
   } else if(fc.phase === 'rebound'){
     ASSET_DEFS.forEach(a=>{
@@ -1772,9 +1955,10 @@ function progressChallenge(type, amount){
     c.progress += amount;
     if(c.progress >= c.target){
       c.done = true;
-      state.cash += c.reward;
-      addLog(`Challenge complete: ${c.label}`, '+'+fmt(c.reward), 'var(--cash)');
-      showToast(`✓ ${c.label} — +${fmt(c.reward)}`);
+      const reward = challengeReward(c);
+      state.cash += reward;
+      addLog(`Challenge complete: ${c.label}`, '+'+fmt(reward), 'var(--cash)');
+      showToast(`✓ ${c.label} — +${fmt(reward)}`);
       anyDone = true;
     }
   });
@@ -1785,6 +1969,7 @@ function progressChallenge(type, amount){
   // a reentrant render() nested inside render() itself.
   if(anyDone) saveState();
 }
+function challengeReward(c){ return c.reward * (hasPerk('daytrader') ? DAY_TRADER_CHALLENGE_MULT : 1); }
 function trackTierTraded(tier){
   if(!state.challengeTradedTiers) state.challengeTradedTiers = [];
   if(!state.challengeTradedTiers.includes(tier)){
@@ -1799,7 +1984,7 @@ function renderChallenges(){
   el.innerHTML = state.activeChallenges.map(c=>`
     <div class="challenge ${c.done?'done':''}">
       <div class="challenge-label">${c.done?'✓ ':''}${c.label}</div>
-      <div class="challenge-progress">${c.done?'+'+fmt(c.reward):Math.min(c.progress,c.target)+'/'+c.target}</div>
+      <div class="challenge-progress">${c.done?'+'+fmt(challengeReward(c)):Math.min(c.progress,c.target)+'/'+c.target}</div>
     </div>`).join('');
 }
 
@@ -1863,6 +2048,21 @@ function debugCollectRentNow(){
   maybeCollectPropertyRent();
   render();
 }
+function debugRetireNow(){
+  if(state.run.over) return;
+  endRun('retired', retireableTier() || RETIRE_TIERS[0]);
+  render();
+}
+function debugBustNow(){
+  if(state.run.over) return;
+  endRun('bust');
+  render();
+}
+function debugPerkDraft(){
+  queuePerkDraft();
+  perkDraftDeferred = false;
+  render();
+}
 function debugSimulateOffline(){
   state.lastSeenAt = Date.now() - 3600*1000;
   saveState();
@@ -1877,6 +2077,294 @@ function startTickerHold(){
   }, 2000);
 }
 function cancelTickerHold(){ clearTimeout(tickerHoldTimer); }
+
+/* ==========================================================================
+   REPLAYABILITY_SPEC.md — runs (B1/B2), perk draft (C1)
+   ========================================================================== */
+function hasPerk(id){ return state.run.perks.includes(id); }
+function perkDef(id){ return PERK_DEFS.find(p=>p.id===id); }
+
+/* ---------- run end + summary ---------- */
+// Highest RETIRE_TIERS amount currently covered by safe-haven holdings alone.
+function retireableTier(){
+  const parked = safeHavenValue();
+  const hit = RETIRE_TIERS.filter(t=>parked >= t.amt);
+  return hit.length ? hit[hit.length-1] : null;
+}
+function retireScorePreview(tier){ return Math.round(Math.max(0, netWorth())/10 * RUN_SCORE_TIER_MULT[tier.label]); }
+
+function retire(){
+  const tier = retireableTier();
+  if(!tier || state.run.over) return;
+  if(!confirm(`Retire as ${tier.label}? This locks in your score and ends the run — no more trades.`)) return;
+  endRun('retired', tier);
+  render();
+}
+
+// Doesn't call render() itself — it can be reached from checkBroke(), which
+// already runs inside render().
+function endRun(outcome, tier){
+  if(state.run.over) return;
+  const nw = netWorth();
+  const peak = Math.max(state.highestNetWorth, nw);
+  const score = outcome === 'retired'
+    ? retireScorePreview(tier)
+    : Math.round(peak/10 * RUN_SCORE_BUST_MULT);
+  const epitaph = outcome === 'retired'
+    ? RETIRE_EPITAPHS[tier.label]
+    : BUST_EPITAPHS[Math.floor(Math.random()*BUST_EPITAPHS.length)];
+  state.run.over = {
+    outcome,
+    tier: tier ? tier.label : null,
+    score,
+    epitaph,
+    endedAt: Date.now(),
+    netWorth: nw,
+    peak,
+  };
+  state.runHistory.unshift({
+    number: state.run.number, outcome, tier: state.run.over.tier, score, epitaph,
+    peak, perks: state.run.perks.slice(), endedAt: state.run.over.endedAt,
+  });
+  if(state.runHistory.length > RUN_HISTORY_MAX) state.runHistory.length = RUN_HISTORY_MAX;
+  if(liveEvent){ hideLiveEventBanner(); liveEvent = null; }
+  hideFlashCrashBanner();
+  ['brokeOverlay','tradeOverlay','mgOverlay'].forEach(closeOverlay);
+  addLog(outcome === 'retired' ? `Retired: ${tier.label}` : 'Vinnie collected', score.toLocaleString()+' pts', 'var(--cash)');
+  pushHeadline(outcome === 'retired' ? `Local degenerate retires ${tier.label.toLowerCase()} — nobody saw it coming` : 'Local trader seen leaving town with a man named Vinnie', outcome === 'retired' ? 'up' : 'down');
+  saveState();
+  showRunSummary();
+}
+
+function fmtDuration(ms){
+  const mins = Math.max(1, Math.round(ms/60000));
+  if(mins < 60) return mins+'m';
+  const h = Math.floor(mins/60), m = mins%60;
+  if(h < 48) return `${h}h ${m}m`;
+  return Math.round(h/24)+'d';
+}
+
+function showRunSummary(){
+  const over = state.run.over;
+  if(!over) return;
+  const retired = over.outcome === 'retired';
+  document.getElementById('runOverIcon').textContent = retired ? '🏖️' : '🦈';
+  document.getElementById('runOverTitle').textContent = retired ? `Retired — ${over.tier}` : 'Vinnie collects';
+  document.getElementById('runOverEpitaph').textContent = over.epitaph;
+  document.getElementById('runOverScore').textContent = over.score.toLocaleString() + ' pts';
+  const best = Math.max(...state.runHistory.map(r=>r.score), over.score);
+  document.getElementById('runOverScoreSub').textContent = `Run #${state.run.number} · ${over.score >= best ? 'new best' : 'best: '+best.toLocaleString()}`;
+  const bt = state.run.bestTrade;
+  const stats = [
+    ['Time', fmtDuration(over.endedAt - state.run.startedAt)],
+    ['Peak net worth', fmt(over.peak)],
+    ['Times broke', state.run.timesBroke],
+    ['Loans taken', state.run.loansTaken],
+    ['Best trade', bt ? `+${fmt(bt.profit)} ${bt.asset}` : 'None'],
+    ['Tier reached', over.tier || currentTierLabel().replace(' tier','')],
+  ];
+  document.getElementById('runOverStats').innerHTML = stats.map(([l,v])=>
+    `<div><div class="trade-stat-label">${l}</div><div class="trade-stat-value">${v}</div></div>`).join('');
+  document.getElementById('runOverPerks').innerHTML = state.run.perks.map(id=>{
+    const p = perkDef(id);
+    return `<span class="perk-chip">${p.icon} ${p.name}</span>`;
+  }).join('');
+  document.getElementById('runOverOverlay').classList.add('show');
+}
+
+// Fresh market, fresh wallet, same person. Keeps anything about the player
+// rather than the run: intro/tutorial seen, settings, and run history. The
+// scripted crypto crash and the onboarding boost are first-run-only, so
+// they're marked as already done (REPLAYABILITY_SPEC.md B3).
+function startNewRun(){
+  const prev = state;
+  const fresh = defaultState();
+  fresh.introSeen = true;
+  fresh.tutorialComplete = true;
+  fresh.tutorialAwaitingRecovery = false;
+  fresh.explainersSeen = prev.explainersSeen;
+  fresh.cryptoLaunchPlayed = true;
+  fresh.crashPopupShown = true;
+  fresh.onboardingBoostEligible = false;
+  fresh.debugMode = prev.debugMode;
+  fresh.terminalMode = prev.terminalMode;
+  fresh.runHistory = prev.runHistory;
+  fresh.run = defaultRun((prev.run.number||1) + 1);
+  state = fresh;
+  saveState();
+  loadState(); // runs the same backfills a fresh save gets (prices, prediction timers, ...)
+  liveEvent = null;
+  hideLiveEventBanner();
+  hideFlashCrashBanner();
+  perkDraftDeferred = false;
+  nextLiveEventAt = Date.now() + randBetween(LIVE_EVENT_MIN_GAP_MS, LIVE_EVENT_MAX_GAP_MS);
+  nextHotAssetAt = Date.now() + randBetween(HOT_ASSET_MIN_GAP_MS, HOT_ASSET_MAX_GAP_MS);
+  bootedAt = Date.now();
+  lastRenderedPrices = {};
+  initSessionStartPrices();
+  initSessionPriceExtremes();
+  initSessionPriceHistory();
+  state.dayStartNetWorth = netWorth();
+  addLog(`Run #${state.run.number} started`, '+$1,000', 'var(--cash)');
+  closeOverlay('runOverOverlay');
+  switchView('portfolio');
+  pushHeadline('Back at rock bottom. Gary waves from across the street.', null);
+  saveState();
+  render();
+}
+
+/* ---------- perk draft ---------- */
+let perkDraftDeferred = false; // "Decide later" — in-memory only, so a reload brings it back
+let renderedPerkDraftKey = null;
+
+// Options are rolled lazily (rollPerkDraft) when a draft reaches the front of
+// the queue, not here — rolling up front would make queued drafts reserve
+// perks from each other, so a back-to-back unlock offered fewer than 3.
+function queuePerkDraft(){
+  state.run.pendingDrafts.push(null);
+}
+function rollPerkDraft(){
+  const owned = new Set(state.run.perks);
+  const pool = PERK_DEFS.map(p=>p.id).filter(id=>!owned.has(id)).sort(()=>Math.random()-0.5);
+  return pool.slice(0, PERK_DRAFT_SIZE);
+}
+
+function pickPerk(id){
+  const draft = state.run.pendingDrafts[0];
+  if(!draft || !draft.includes(id)) return;
+  state.run.pendingDrafts.shift();
+  state.run.perks.push(id);
+  const p = perkDef(id);
+  if(id === 'insider'){
+    // Pick his "industry" from whatever rumor-able asset is already open to
+    // trade, so the perk does something right away.
+    const unlocked = unlockedTierIds();
+    const pool = MARKET_EVENT_TEMPLATES.map(t=>t.assetId).filter(aid=>{
+      const a = ASSET_DEFS.find(x=>x.id===aid);
+      return a && unlocked.includes(a.tier);
+    });
+    state.run.insiderAssetId = pool[Math.floor(Math.random()*pool.length)];
+  }
+  addLog(`Perk drafted: ${p.name}`, '', 'var(--cash)');
+  showToast(`${p.icon} ${p.name}`);
+  hapticTap();
+  saveState();
+  render();
+}
+
+function deferPerkDraft(){
+  perkDraftDeferred = true;
+  renderPerkDraft();
+}
+function resumePerkDraft(){
+  perkDraftDeferred = false;
+  renderPerkDraft();
+}
+
+function renderPerkDraft(){
+  const el = document.getElementById('perkDraftBanner');
+  if(state.run.pendingDrafts.length && !state.run.pendingDrafts[0]){
+    const rolled = rollPerkDraft();
+    if(rolled.length){ state.run.pendingDrafts[0] = rolled; saveState(); }
+    else state.run.pendingDrafts = []; // every perk already owned — nothing left to offer
+  }
+  const draft = state.run.pendingDrafts[0];
+  // Held back while onboarding or the scripted crash has the stage — the
+  // first run's crypto-unlock draft just waits until the tutorial's done.
+  const blocked = !draft || perkDraftDeferred || state.run.over || introActive || tutorialActive || state.tutorialAwaitingRecovery;
+  if(blocked){ el.classList.remove('show'); return; }
+  const key = draft.join(',');
+  if(key !== renderedPerkDraftKey){ // don't rebuild the buttons under the player's finger every tick
+    renderedPerkDraftKey = key;
+    document.getElementById('perkDraftOptions').innerHTML = draft.map(id=>{
+      const p = perkDef(id);
+      return `<button class="perk-option" onclick="pickPerk('${id}')">
+        <span class="picon">${p.icon}</span>
+        <span><div class="pname">${p.name}</div><div class="pdesc">${p.desc}</div></span>
+      </button>`;
+    }).join('');
+  }
+  el.classList.add('show');
+}
+
+function renderPerksSection(){
+  const el = document.getElementById('perksSection');
+  if(!el) return;
+  const pending = state.run.pendingDrafts.length;
+  if(!state.run.perks.length && !(pending && perkDraftDeferred)){ el.innerHTML = ''; return; }
+  const chips = state.run.perks.map(id=>{
+    const p = perkDef(id);
+    const extra = id === 'insider' && state.run.insiderAssetId ? ` (${assetName(ASSET_DEFS.find(a=>a.id===state.run.insiderAssetId))})` : '';
+    return `<span class="perk-chip">${p.icon} ${p.name}${extra}</span>`;
+  }).join('');
+  const resume = pending && perkDraftDeferred
+    ? `<button class="btn btn-block" style="margin-bottom:6px;" onclick="resumePerkDraft()">Perk draft waiting — pick one</button>`
+    : '';
+  el.innerHTML = `<h2>Run #${state.run.number} perks</h2>${chips ? `<div class="perk-chips">${chips}</div>` : ''}${resume}`;
+}
+
+/* ---------- perk effects ---------- */
+function effDrift(a){ return (a.type === 'safe' && hasPerk('taxlawyer')) ? a.drift * 2 : a.drift; }
+
+function noteHoldStart(id, prevUnits){
+  if(prevUnits <= 0.0001) state.run.heldSince[id] = Date.now();
+}
+
+// Diamond Hands: during the flash crash's slide, positions held long enough
+// lose half as much. Prices are shared, so the softening is applied to the
+// player's unit count instead (with cost basis scaled to match, so the
+// position's total cost is unchanged).
+function applyDiamondHands(perTickMult){
+  if(!hasPerk('diamond')) return;
+  const now = Date.now();
+  const comp = (1 - (1 - perTickMult)/2) / perTickMult;
+  ASSET_DEFS.forEach(a=>{
+    if(a.type === 'prediction') return;
+    const since = state.run.heldSince[a.id];
+    if(!since || now - since < DIAMOND_HANDS_MIN_HOLD_MS || (state.holdings[a.id]||0) <= 0.0001) return;
+    state.holdings[a.id] *= comp;
+    if(state.costBasis[a.id] > 0) state.costBasis[a.id] /= comp;
+  });
+}
+
+function applyDayTraderDecay(){
+  if(!hasPerk('daytrader')) return;
+  const now = Date.now();
+  const mult = 1 - DAY_TRADER_DECAY_PER_MIN * (TICK_MS/60000);
+  allAssets().forEach(a=>{
+    const since = state.run.heldSince[a.id];
+    if(!since || now - since < DAY_TRADER_DECAY_AFTER_MS) return;
+    if((state.holdings[a.id]||0) > 0.0001) state.holdings[a.id] *= mult;
+  });
+}
+
+function applyInfluencerNudge(a, spendAmt){
+  if(!hasPerk('influencer') || !a.meme) return;
+  const last = state.run.influencerLastAt[a.id] || 0;
+  if(Date.now() - last < INFLUENCER_COOLDOWN_MS) return;
+  state.run.influencerLastAt[a.id] = Date.now();
+  const nudge = Math.min(INFLUENCER_NUDGE_MAX, spendAmt * INFLUENCER_NUDGE_PER_DOLLAR);
+  state.prices[a.id] *= 1 + nudge;
+  if(nudge >= 0.01) pushHeadline(`${assetName(a)} ticks up after a "not financial advice" post goes viral`, 'up');
+}
+
+function checkMarginCalls(){
+  Object.keys(state.run.marginLoan).forEach(id=>{
+    const loan = state.run.marginLoan[id];
+    const value = (state.holdings[id]||0) * state.prices[id];
+    if(value - loan > loan * MARGIN_CALL_EQUITY_FRAC) return;
+    const a = ASSET_DEFS.find(x=>x.id===id);
+    const leftover = Math.max(0, value - loan);
+    state.cash += leftover;
+    state.holdings[id] = 0;
+    state.costBasis[id] = 0;
+    delete state.run.heldSince[id];
+    delete state.run.marginLoan[id];
+    addLog(`Margin call: ${assetName(a)} liquidated`, '+'+fmt(leftover), 'var(--down)');
+    pushHeadline(`Margin call — broker liquidates a ${assetName(a)} position at the worst possible moment`, 'down');
+    showToast(`Margin call on ${assetName(a)}`);
+  });
+}
 
 /* ---------- ticker ---------- */
 let tickerQueue = [];
@@ -1939,7 +2427,13 @@ function propertyEquityValue(){
   PROPERTY_DEFS.forEach(def=>{ v += (state.properties[def.id]||[]).length * def.price; });
   return v;
 }
-function netWorth(){ return state.cash + holdingsValue() + propertyEquityValue() - state.debt; }
+function netWorth(){ return state.cash + holdingsValue() + propertyEquityValue() - state.debt - marginLoanTotal(); }
+function marginLoanTotal(){
+  return Object.values(state.run.marginLoan).reduce((sum,v)=>sum+v, 0);
+}
+function safeHavenValue(){
+  return SAFE_DEFS.reduce((sum,a)=>sum + (state.holdings[a.id]||0)*state.prices[a.id], 0);
+}
 function unlockedTierIds(){
   const nw = state.highestNetWorth;
   return TIERS.filter(t=>nw >= t.unlockAt).map(t=>t.id);
@@ -1967,6 +2461,7 @@ function render(){
   if(state.debt > 0.5){
     document.getElementById('debtRow').style.display = 'block';
     document.getElementById('debtVal').textContent = fmt(state.debt);
+    document.getElementById('loanCount').textContent = `· Vinnie ${state.run.loansTaken}/${loanCap()}`;
   } else {
     document.getElementById('debtRow').style.display = 'none';
   }
@@ -1978,6 +2473,8 @@ function render(){
   renderLog();
   renderStreak();
   renderChallenges();
+  renderPerksSection();
+  renderPerkDraft();
   updateLiveEventTimer();
   const debugRow = document.getElementById('debugRow');
   if(debugRow) debugRow.style.display = state.debugMode ? 'block' : 'none';
@@ -2250,12 +2747,18 @@ function renderProperties(){
   }).join('');
 }
 
+// Measured against safe-haven holdings, not net worth — paper gains in RUGX
+// don't count until you've actually parked them somewhere boring.
 function renderRetirement(){
-  const nw = netWorth();
+  const parked = safeHavenValue();
   const el = document.getElementById('retireProgress');
-  el.innerHTML = RETIRE_TIERS.map(t=>{
-    const pct = Math.min(100, (nw/t.amt)*100);
-    const reached = nw >= t.amt;
+  const tier = retireableTier();
+  const retireBtn = tier
+    ? `<button class="btn btn-primary btn-block" style="margin-bottom:14px;" onclick="retire()">Retire as ${tier.label} · ends the run (~${retireScorePreview(tier).toLocaleString()} pts)</button>`
+    : '';
+  el.innerHTML = retireBtn + RETIRE_TIERS.map(t=>{
+    const pct = Math.min(100, (parked/t.amt)*100);
+    const reached = parked >= t.amt;
     return `
       <div style="margin-bottom:14px;">
         <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:5px;">
@@ -2266,7 +2769,7 @@ function renderRetirement(){
           <div style="height:100%; width:${pct}%; background:${reached?'var(--up)':'var(--cash)'};"></div>
         </div>
       </div>`;
-  }).join('') + `<p style="font-size:11px; color:var(--text-faint); margin-top:6px;">Retirement requires the amount parked in safe havens, not just paper gains — wire that check up when this becomes a real build.</p>`;
+  }).join('') + `<p style="font-size:11px; color:var(--text-faint); margin-top:6px;">${fmt(parked)} parked in safe havens. Only that counts. Retiring locks in your score and ends the run — the higher the tier, the bigger the multiplier.</p>`;
 }
 
 function renderLog(){
@@ -2287,6 +2790,8 @@ function addLog(text, amt, color){
 /* ---------- trading ---------- */
 let tradeSessionId = 0; // bumped on every open so a stale doTrade() confirm timeout can tell it's no longer the active sheet
 let currentTradeSide = 'yes'; // only meaningful for type:'prediction' assets — 'yes' or 'no'
+let currentTradeLeverage = 1; // only ever 2 with the Margin Account perk, on a risky non-prediction asset
+function canUseMargin(a){ return hasPerk('margin') && a.type !== 'safe' && a.type !== 'prediction'; }
 function openTrade(id, side){
   tradeSessionId++;
   currentTradeAsset = allAssets().find(a=>a.id===id);
@@ -2299,6 +2804,9 @@ function openTrade(id, side){
     ? (side || ((state.holdings[id]||0) <= 0 && (state.holdingsNo[id]||0) > 0 ? 'no' : 'yes'))
     : 'yes';
   updateTradeSideButtons();
+  currentTradeLeverage = 1;
+  document.getElementById('tradeLeverageToggle').style.display = canUseMargin(currentTradeAsset) ? 'flex' : 'none';
+  updateTradeLeverageButtons();
   refreshTradePriceLabel();
   renderTradeChart();
   renderTradeStats();
@@ -2381,6 +2889,16 @@ function setTradeSide(side){
   refreshTradePriceLabel();
   hapticTap();
 }
+function setTradeLeverage(lev){
+  currentTradeLeverage = lev;
+  updateTradeLeverageButtons();
+  hapticTap();
+}
+function updateTradeLeverageButtons(){
+  document.querySelectorAll('#tradeLeverageToggle button').forEach(b=>{
+    b.classList.toggle('active', Number(b.dataset.lev) === currentTradeLeverage);
+  });
+}
 function updateTradeSideButtons(){
   document.querySelectorAll('#tradeSideToggle button').forEach(b=>{
     b.classList.toggle('active', b.classList.contains('side-'+currentTradeSide));
@@ -2395,7 +2913,8 @@ function refreshTradePriceLabel(){
     const owned = isNo ? (state.holdingsNo[a.id]||0) : (state.holdings[a.id]||0);
     document.getElementById('tradeAssetPrice').textContent = Math.round(sidePrice*100)+'¢ per unit · you own ' + owned.toFixed(2);
   } else {
-    document.getElementById('tradeAssetPrice').textContent = fmtPrice(price) + ' per unit · you own ' + (state.holdings[a.id]||0).toFixed(2);
+    const loan = state.run.marginLoan[a.id]||0;
+    document.getElementById('tradeAssetPrice').textContent = fmtPrice(price) + ' per unit · you own ' + (state.holdings[a.id]||0).toFixed(2) + (loan > 0.5 ? ` · ${fmt(loan)} on margin` : '');
   }
 }
 function closeOverlay(id){ document.getElementById(id).classList.remove('show'); }
@@ -2434,11 +2953,18 @@ function doTrade(dir){
     const spendAmt = (state.cash - amt <= 1) ? state.cash : amt;
     const prevUnits = holdings[a.id]||0;
     const prevCost = costBasis[a.id]||0;
-    const newUnits = spendAmt/sidePrice;
+    // Margin Account perk: the extra (leverage-1)x is borrowed against the
+    // position itself, repaid out of sale proceeds (or a margin call).
+    const lev = canUseMargin(a) ? currentTradeLeverage : 1;
+    const borrowed = spendAmt * (lev - 1);
+    const newUnits = (spendAmt + borrowed)/sidePrice;
+    if(!isNo) noteHoldStart(a.id, prevUnits);
     state.cash -= spendAmt;
+    if(borrowed > 0) state.run.marginLoan[a.id] = (state.run.marginLoan[a.id]||0) + borrowed;
     holdings[a.id] = prevUnits + newUnits;
     costBasis[a.id] = holdings[a.id]>0 ? ((prevCost*prevUnits)+(sidePrice*newUnits))/holdings[a.id] : sidePrice;
-    addLog(`Bought ${assetName(a)}${sideLabel}`, '-'+fmt(spendAmt), 'var(--down)');
+    addLog(`Bought ${assetName(a)}${sideLabel}${lev>1?` (${lev}x margin)`:''}`, '-'+fmt(spendAmt), 'var(--down)');
+    applyInfluencerNudge(a, spendAmt);
     bought = true;
     progressChallenge('tradeCount');
     if(a.type==='safe') progressChallenge('safeHavenBuy');
@@ -2458,14 +2984,30 @@ function doTrade(dir){
     // predates cost-basis tracking. Leave the streak untouched rather than
     // falling back to price>price (always false), which would wrongly zero
     // a streak on a legitimately profitable sale.
+    const unitsSold = sellAmt/sidePrice;
     if(costBasis[a.id] > 0){
       const wasProfitable = sidePrice > costBasis[a.id];
       state.winStreak = wasProfitable ? (state.winStreak||0)+1 : 0;
+      const profit = (sidePrice - costBasis[a.id]) * unitsSold;
+      if(profit > 0 && (!state.run.bestTrade || profit > state.run.bestTrade.profit)){
+        state.run.bestTrade = {profit, asset: assetName(a)};
+      }
     }
-    holdings[a.id] -= sellAmt/sidePrice;
-    if(holdings[a.id] <= 0.0001) costBasis[a.id] = 0;
-    state.cash += sellAmt;
-    addLog(`Sold ${assetName(a)}${sideLabel}`, '+'+fmt(sellAmt), 'var(--up)');
+    // Repay the matching share of any margin loan out of the proceeds first.
+    const loan = isNo ? 0 : (state.run.marginLoan[a.id]||0);
+    const repay = loan > 0 ? loan * Math.min(1, unitsSold / holdings[a.id]) : 0;
+    holdings[a.id] -= unitsSold;
+    if(holdings[a.id] <= 0.0001){
+      costBasis[a.id] = 0;
+      if(!isNo) delete state.run.heldSince[a.id];
+    }
+    if(repay > 0){
+      state.run.marginLoan[a.id] = loan - repay;
+      if(state.run.marginLoan[a.id] <= 0.01) delete state.run.marginLoan[a.id];
+    }
+    const proceeds = Math.max(0, sellAmt - repay); // an underwater position just closes at zero, it doesn't bill you
+    state.cash += proceeds;
+    addLog(`Sold ${assetName(a)}${sideLabel}`, (proceeds>=0?'+':'')+fmt(proceeds), proceeds>=0?'var(--up)':'var(--down)');
     progressChallenge('tradeCount');
     progressChallenge('sellCount');
     trackTierTraded(a.tier || 'safe');
@@ -2486,25 +3028,65 @@ function doTrade(dir){
 /* ---------- broke / recovery flow ---------- */
 function checkBroke(){
   if(suppressBrokeCheck) return; // an offline recap is about to show — broke flow (if any) fires after it closes, not silently behind it
+  if(state.run.over) return;
   if(state.forceBrokeNext){
     // The scripted crash's final beat wants this to land for sure — don't
     // leave it to the normal threshold, since residual value from whatever
     // the player happened to be holding (or bought mid-crash) can otherwise
     // dodge the $5 sellable cutoff.
     state.forceBrokeNext = false;
-    document.getElementById('brokeOverlay').classList.add('show');
+    openBrokeSheet();
     return;
   }
   if(state.cash > 1) return;
-  const sellable = holdingsValue();
+  const sellable = holdingsValue() - marginLoanTotal();
   if(sellable > 5) return;
-  document.getElementById('brokeOverlay').classList.add('show');
+  openBrokeSheet();
+}
+
+function loanCap(){ return LOAN_SHARK_MAX_LOANS + (hasPerk('nephew') ? VINNIE_NEPHEW_EXTRA_LOANS : 0); }
+function loanCeilingReached(){ return state.run.loansTaken >= loanCap() || state.debt > LOAN_SHARK_MAX_DEBT; }
+
+// REPLAYABILITY_SPEC.md B2: once you've maxed out Vinnie, the next time you
+// go broke he collects and the run is over. Before that, every recovery
+// path stays open. The tutorial's scripted wipe is exempt.
+function openBrokeSheet(){
+  const overlay = document.getElementById('brokeOverlay');
+  if(overlay.classList.contains('show')) return; // already open — don't double-count
+  if(document.getElementById('mgOverlay').classList.contains('show')) return; // mid-recovery, the payout hasn't landed yet
+  if(loanCeilingReached() && !state.tutorialAwaitingRecovery){
+    endRun('bust');
+    return;
+  }
+  state.run.timesBroke++;
+  const n = state.run.loansTaken + 1;
+  const cap = loanCap();
+  document.getElementById('loanOptionSub').textContent = n >= cap
+    ? `Instant $500 · loan ${n} of ${cap} — go broke again after this and Vinnie collects`
+    : `Instant $500, +8% interest weekly · loan ${n} of ${cap}`;
+  document.getElementById('garyOption').style.display = (hasPerk('gary') && !state.run.garyFavorUsed) ? 'flex' : 'none';
+  overlay.classList.add('show');
+  saveState();
+}
+
+function callInGaryFavor(){
+  if(!hasPerk('gary') || state.run.garyFavorUsed) return;
+  state.run.garyFavorUsed = true;
+  state.cash += GARY_FAVOR_AMOUNT;
+  addLog("Gary paid up what he owed", '+'+fmt(GARY_FAVOR_AMOUNT), 'var(--cash)');
+  resetRiskyPrices();
+  progressChallenge('noLoanRecovery');
+  document.getElementById('brokeOverlay').classList.remove('show');
+  saveState();
+  render();
+  showToast('Gary pays up. He looks like it physically hurts.');
 }
 
 function takeLoan(){
   const wasAwaitingTutorial = state.tutorialAwaitingRecovery;
   state.cash += 500;
   state.debt += 500;
+  state.run.loansTaken++;
   addLog('Took a loan shark bailout', '+$500', 'var(--cash)');
   resetRiskyPrices();
   progressChallenge('takeLoan');
@@ -2628,6 +3210,14 @@ function openMinigame(game, kind){
 // definition. Safe since a genuinely broke player holds ~$0 of any of these
 // at this point anyway.
 function resetRiskyPrices(){
+  // Any margin position left at this point is effectively worthless — close
+  // it out before prices snap back, or the reset would hand it free equity.
+  Object.keys(state.run.marginLoan).forEach(id=>{
+    state.holdings[id] = 0;
+    state.costBasis[id] = 0;
+    delete state.run.heldSince[id];
+  });
+  state.run.marginLoan = {};
   ASSET_DEFS.forEach(a=>{
     state.prices[a.id] = a.price;
     state.startPrices[a.id] = a.price;
@@ -2947,6 +3537,11 @@ function completeTutorial(){
   state.cash = 1000;
   state.debt = 0;
   state.dayStartNetWorth = 1000;
+  // The scripted crash isn't part of the run's record — start the stats clean.
+  state.run.startedAt = Date.now();
+  state.run.timesBroke = 0;
+  state.run.loansTaken = 0;
+  state.run.bestTrade = null;
   saveState();
   render();
   document.getElementById('tutorialCompleteOverlay').classList.add('show');
@@ -3105,8 +3700,9 @@ function proceedPastIntro(){
 // A brand-new save never has a recap waiting (lastSeenAt was just set to
 // now), so this and the recap path never actually compete in practice —
 // the intro only ever plays automatically for a save that's never seen it.
-if(!state.introSeen){ startIntro(proceedPastIntro); } else { proceedPastIntro(); }
-if(state.flashCrash) renderFlashCrashBanner(); // a crash interrupted by a close/reload resumes, so show its banner again
+if(state.run.over){ suppressBrokeCheck = false; showRunSummary(); }
+else if(!state.introSeen){ startIntro(proceedPastIntro); } else { proceedPastIntro(); }
+if(state.flashCrash && !state.run.over) renderFlashCrashBanner(); // a crash interrupted by a close/reload resumes, so show its banner again
 const tickerWrapEl = document.getElementById('ticker-wrap');
 tickerWrapEl.addEventListener('touchstart', startTickerHold);
 tickerWrapEl.addEventListener('mousedown', startTickerHold);
