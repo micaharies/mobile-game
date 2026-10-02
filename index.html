@@ -85,6 +85,7 @@ nav button{flex:1; padding:12px 0 10px; font-size:11px; color:var(--text-faint);
 nav button.active{color:var(--cash);}
 nav .dot{width:18px; height:18px; border-radius:5px; background:var(--surface3); display:flex; align-items:center; justify-content:center; font-size:11px;}
 nav button.active .dot{background:var(--cash); color:#1a1305;}
+nav button.locked{opacity:.5;}
 
 /* ===== Views ===== */
 main{flex:1; padding:16px;}
@@ -276,6 +277,21 @@ footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:1
 .property-unit-actions{display:flex; gap:6px; flex-shrink:0;}
 .property-unit-actions .btn{padding:6px 10px; font-size:11px;}
 
+/* ===== PREDICTION_MARKETS_SPEC.md ===== */
+.asset.pred-card{align-items:flex-start; gap:10px;}
+.asset.pred-card .asset-name{font-size:13.5px; line-height:1.35;}
+.asset.pred-card.hype{border-color:var(--cash-dim); border-left:3px solid var(--cash);}
+.pred-cat{font-size:9.5px; text-transform:uppercase; letter-spacing:.05em; font-weight:600;}
+.pred-meta{font-size:11px; color:var(--text-faint); margin-top:3px; font-family:var(--font-mono);}
+.pred-hint{font-size:11px; color:var(--text-faint); margin:-2px 0 10px; line-height:1.4;}
+.locked-panel{text-align:center; padding:56px 20px 24px;}
+.locked-panel .lp-icon{font-size:34px; margin-bottom:10px;}
+.locked-panel .lp-title{font-size:17px; font-weight:600; margin-bottom:4px;}
+.locked-panel .lp-sub{font-size:12px; color:var(--text-faint); font-family:var(--font-mono); margin-bottom:14px;}
+.locked-panel .lp-body{font-size:13px; color:var(--text-dim); line-height:1.5; margin-bottom:18px;}
+.locked-panel .lp-bar{height:6px; background:var(--surface2); border-radius:4px; overflow:hidden;}
+.locked-panel .lp-bar div{height:100%; background:var(--cash);}
+
 /* --- 4. Juice --- */
 @keyframes flashUp{ from{background:color-mix(in srgb, var(--up) 35%, var(--surface1));} to{background:var(--surface1);} }
 @keyframes flashDown{ from{background:color-mix(in srgb, var(--down) 35%, var(--surface1));} to{background:var(--surface1);} }
@@ -390,6 +406,10 @@ footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:1
     <div id="safeList"></div>
   </div>
 
+  <div class="view" id="view-predictions">
+    <div id="predictionsList"></div>
+  </div>
+
   <div class="view" id="view-properties">
     <h2>Real estate</h2>
     <div id="propertiesList"></div>
@@ -402,13 +422,14 @@ footer.reset-row #terminalModeBtn{display:block; margin:0 auto 14px; font-size:1
       <button id="terminalModeBtn" onclick="toggleTerminalMode()">Terminal mode: Off</button>
       <button onclick="replayIntro()">Replay intro</button> · <button onclick="replayTutorial()">Replay tutorial</button> · <button onclick="resetGame()">Reset save data</button>
     </footer>
-    <div id="debugRow"><button onclick="debugSimulateOffline()">Debug: simulate 1hr offline</button><button onclick="debugTriggerFlashCrash()">Debug: trigger flash crash</button><button onclick="debugTriggerRugPull()">Debug: trigger rug pull</button><button onclick="debugUnlockProperties()">Debug: unlock properties</button><button onclick="debugCollectRentNow()">Debug: collect rent now</button><button onclick="debugRetireNow()">Debug: retire now</button><button onclick="debugBustNow()">Debug: Vinnie collects</button><button onclick="debugPerkDraft()">Debug: perk draft</button></div>
+    <div id="debugRow"><button onclick="debugSimulateOffline()">Debug: simulate 1hr offline</button><button onclick="debugTriggerFlashCrash()">Debug: trigger flash crash</button><button onclick="debugTriggerRugPull()">Debug: trigger rug pull</button><button onclick="debugUnlockProperties()">Debug: unlock properties</button><button onclick="debugCollectRentNow()">Debug: collect rent now</button><button onclick="debugRetireNow()">Debug: retire now</button><button onclick="debugBustNow()">Debug: Vinnie collects</button><button onclick="debugPerkDraft()">Debug: perk draft</button><button onclick="debugResolvePredictions()">Debug: resolve predictions now</button></div>
   </div>
 </main>
 
 <nav>
   <button class="active" data-view="portfolio" onclick="switchView('portfolio')"><span class="dot">$</span>Portfolio</button>
   <button data-view="markets" onclick="switchView('markets')"><span class="dot">M</span>Markets</button>
+  <button data-view="predictions" onclick="switchView('predictions')"><span class="dot">?</span>Predictions</button>
   <button data-view="properties" onclick="switchView('properties')"><span class="dot">P</span>Properties</button>
   <button data-view="log" onclick="switchView('log')"><span class="dot">L</span>Activity</button>
 </nav>
@@ -747,46 +768,138 @@ const BUST_EPITAPHS = [
   'Vinnie collects. The airport fry stand is still not hiring.',
   'Vinnie collects. Somewhere, Gary is smiling.',
 ];
-const PREDICTION_RESOLVE_MIN_S = 60;
-const PREDICTION_RESOLVE_MAX_S = 90;
+// --- PREDICTION_MARKETS_SPEC.md ---
+// Predictions are a fixed set of SLOTS (ordinary ASSET_DEFS entries, so the
+// trade sheet/holdings/net worth all keep working off one asset id), each
+// showing one market drawn from PREDICTION_POOL. When a market resolves, its
+// slot immediately reopens with a different pool entry — that's the rotation.
+// The first slot is the short-fuse "hype" market from RETENTION_SPEC.md §2:
+// same content pool, but always a 60-90s window.
+const PREDICTION_SLOT_IDS = ['pred1','pred2','pred3','pred4','pred5','pred6','pred7','pred8'];
+const PREDICTION_HYPE_SLOT = 'pred1';
+const PREDICTION_HYPE_WINDOW_S = [60, 90];
+const PREDICTION_PAYOUT = 1;        // a winning unit pays $1, a losing one $0
+const PREDICTION_RECENT_MAX = 12;   // pool entries that can't come straight back after resolving
+// Displayed price = the "fair" odds (see predictionFairPrice) plus a mean-
+// reverting sentiment offset — ordinary trader noise, and the thing rumors
+// and hot-asset rotations nudge. Fades out over the last quarter of a
+// market's window so the price still converges on the real outcome.
+const PREDICTION_SENTIMENT_DECAY = 0.97; // per tick
+const PREDICTION_SENTIMENT_NOISE = 0.25; // x the entry's volatility, per tick
+const PREDICTION_SENTIMENT_MAX = 0.25;
+const PREDICTION_EVENT_NUDGE = 0.08;     // a rumor about a market's subject asset
+const PREDICTION_HOT_NUDGE = 0.04;       // a subject asset rotating hot
+// The 4 hardcoded markets from before the pool existed. Any position an old
+// save still holds in them gets cashed out at market on load.
+const LEGACY_PREDICTION_IDS = ['rain','elec','sports','traffic'];
 
-// Pool every prediction market's question is drawn from on resolution, so
-// the same 4 questions don't just loop forever — each of the 4 slots (see
-// ASSET_DEFS below) keeps its id/price/vol permanently, but the *question*
-// text attached to it (state.predictionNames) gets reassigned to a random
-// pick from here each time it resolves, minus whatever's currently showing
-// on any of the other active slots (see pickPredictionQuestion).
-const PREDICTION_QUESTION_BANK = [
-  'Rain tomorrow',
-  'Mayor wins reelection',
-  'Home team wins tonight',
-  'Traffic clears before 6pm',
-  'Snow before Thanksgiving',
-  'City council approves the new bridge',
-  'Landlord actually fixes the heat',
-  'Neighbor\'s dog barks past midnight',
-  'Gas prices drop this week',
-  'Bakery sells out of donuts by 9am',
-  'Outdoor concert gets rained out',
-  'Office wifi outage before end of day',
-  'Downtown parking garage fills up by noon',
-  'High school team wins the championship',
-  'Farmers market gets cancelled for weather',
-  'Power stays on during the storm',
-  'Ferry runs on time today',
-  'Diner changes its menu this month',
-  'County fair breaks last year\'s attendance record',
-  'Construction on 5th Ave finishes on schedule',
-  'Lake freezes over by New Year\'s',
-  'Food truck festival sells out',
-  'Library extends its hours',
-  'Bridge toll goes up this quarter',
-  'Minor league team wins the opener',
-  'Election recount changes the result',
-  'Block party gets its permit in time',
-  'Local bakery wins "best in town" again',
-  'Weekend flea market gets moved indoors',
-  'Community pool reopens on schedule',
+// window is [min,max] in MINUTES, the actual duration rolled within it.
+const PREDICTION_CATEGORIES = {
+  absurd:  {label:'Absurd',         color:'var(--cash)', window:[10, 60]},
+  news:    {label:'Current events', color:'var(--safe)', window:[120, 1440]},
+  weather: {label:'Weather',        color:'var(--up)',   window:[30, 240]},
+  meta:    {label:'Meta',           color:'var(--down)', window:[5, 20]},
+};
+
+// Shared cast, reused from the opening sequence (OPENING_SEQUENCE_SPEC.md)
+// so the world feels connected: Gary the pit boss, Vinnie the loan shark,
+// the brother who sends you to voicemail, the airport fry stand, the
+// community-service raccoons, the $40 buffet comp, the rumor-mill regulars.
+//
+// baseOdds is the authored lean (jittered a little each time it's drawn).
+// Mostly decisive on purpose — real markets rarely sit at a true coin flip.
+// `subject` ties a market to a tradable asset: rumors / hot rotations on that
+// asset nudge this market's price, `sign` saying which way. `resolveAgainst`
+// (meta only) resolves off real game state instead of a hidden roll.
+// yes/no are the ticker headlines on resolution.
+const PREDICTION_POOL = [
+  // --- Absurd/satirical (the bulk) ---
+  {id:'microwave-popcorn', category:'absurd', prompt:'Will the office microwave survive another popcorn incident?', baseOdds:0.3, volatility:0.035,
+    yes:'Office microwave survives popcorn incident, staff cautiously resume reheating fish', no:'Office microwave lost to popcorn. Survived by a toaster oven and a fire extinguisher'},
+  {id:'gary-promoted', category:'absurd', prompt:'Will Gary the pit boss get promoted?', baseOdds:0.25, volatility:0.04,
+    yes:'Gary promoted to senior pit boss, celebrates by walking someone out', no:"Gary passed over again, blames 'the guy with a system'"},
+  {id:'raccoon-trash', category:'absurd', prompt:'Will a raccoon get back into the trash cans this week?', baseOdds:0.82, volatility:0.03,
+    yes:'Raccoon breaches the trash cans again, community service volunteers outmatched', no:'Trash cans hold the line. Raccoons regrouping, sources say'},
+  {id:'fry-stand-hiring', category:'absurd', prompt:'Will the airport fry stand start hiring again?', baseOdds:0.2, volatility:0.04,
+    yes:'Airport fry stand hiring — emotional availability no longer required', no:"Airport fry stand still not hiring, cites 'vibes'"},
+  {id:'brother-picks-up', category:'absurd', prompt:'Will your brother pick up the phone this time?', baseOdds:0.12, volatility:0.03,
+    yes:"Brother picks up, says 'wrong number', hangs up. Analysts say it counts", no:'Straight to voicemail. You could hear him do it'},
+  {id:'buffet-comp', category:'absurd', prompt:'Will anyone win a $40 buffet comp before Friday?', baseOdds:0.35, volatility:0.04,
+    yes:'Second-ever $40 buffet comp awarded, previous holder demands a recount', no:'No buffet comps this week. Your 2019 record stands'},
+  {id:'vinnie-day-off', category:'absurd', prompt:'Will Vinnie take a day off from collecting?', baseOdds:0.1, volatility:0.03,
+    yes:'Vinnie spotted at the beach. Debtors briefly breathe', no:'Vinnie did not take a day off. Vinnie has never taken a day off'},
+  {id:'begging-corner', category:'absurd', prompt:'Will someone steal the good begging corner?', baseOdds:0.65, volatility:0.04,
+    yes:"Rival panhandler claims the prime corner, cites 'squatter's rights'", no:"Begging corner unclaimed, foot traffic described as 'tepid'"},
+  {id:'pigeon-employee', category:'absurd', prompt:'Will the trading floor pigeon be named employee of the month?', baseOdds:0.7, volatility:0.035,
+    yes:'Pigeon named employee of the month for the third time, interns furious', no:'Pigeon snubbed for employee of the month, leaves droppings on the plaque'},
+  {id:'intern-pip', category:'absurd', prompt:'Will the forex intern finally learn what a pip is?', baseOdds:0.15, volatility:0.035,
+    yes:'Forex intern explains a pip correctly, nobody else on the desk can confirm it', no:"Forex intern still thinks a pip is 'a little guy'"},
+  {id:'printer-jam', category:'absurd', prompt:'Will the printer jam during the big presentation?', baseOdds:0.85, volatility:0.03,
+    yes:'Printer jams on slide one. Presenter improvises, badly', no:'Printer works flawlessly, staff suspect a trap'},
+  {id:'big-ronnie', category:'absurd', prompt:"Will the slot machine Gary calls 'Big Ronnie' pay out tonight?", baseOdds:0.2, volatility:0.045,
+    yes:"Big Ronnie pays out. Gary is 'looking into it'", no:'Big Ronnie stays cold. Gary seen patting it affectionately'},
+  {id:'dogo-chat-cope', category:'absurd', prompt:"Will the DOGO group chat admit they're down bad?", baseOdds:0.15, volatility:0.04, subject:{assetId:'doge', sign:-1},
+    yes:"DOGO group chat admits defeat, immediately un-admits it", no:"DOGO group chat 'still bullish', 400 rocket emojis deep"},
+  {id:'lambo-lease', category:'absurd', prompt:'Will the guy in the Lambo turn out to be leasing?', baseOdds:0.88, volatility:0.03,
+    yes:"Lambo guy confirmed leasing. Also it's his cousin's", no:'Lambo guy somehow owns the Lambo. Nobody can explain it'},
+
+  // --- Fictional "current events" (in-universe, no real people/places/brands) ---
+  {id:'stadium-vote', category:'news', prompt:'Will the city council approve the new stadium?', baseOdds:0.65, volatility:0.03,
+    yes:'City council approves the stadium, names it after a payday lender', no:'Stadium vote fails. Council goes back to arguing about parking'},
+  {id:'omnivore-lawsuit', category:'news', prompt:'Will the mystery lawsuit against Omnivore Holdings settle this week?', baseOdds:0.3, volatility:0.035,
+    yes:"Omnivore Holdings settles mystery lawsuit, terms 'also a mystery'", no:"Omnivore lawsuit drags on, lawyers' boat payments secured"},
+  {id:'cruise-inspection', category:'news', prompt:'Will the cruise ship buffet pass its health inspection?', baseOdds:0.35, volatility:0.035, subject:{assetId:'ncla', sign:1},
+    yes:'Cruise buffet passes inspection, shrimp tower cleared for duty', no:"Cruise buffet fails inspection, shrimp tower 'under investigation'"},
+  {id:'auto-recall', category:'news', prompt:'Will the auto plant announce another recall?', baseOdds:0.4, volatility:0.035, subject:{assetId:'gmtx', sign:-1},
+    yes:"Auto plant announces recall, cites 'wheels, sort of'", no:'No recall this week, auto plant throws itself a party'},
+  {id:'phone-keynote', category:'news', prompt:"Will the big phone keynote just be 'a slightly bigger phone' again?", baseOdds:0.88, volatility:0.025, subject:{assetId:'aapl', sign:-1},
+    yes:"Keynote reveals slightly bigger phone, crowd claps on cue", no:'Keynote reveals a phone that is somehow smaller. Chaos'},
+  {id:'toll-hike', category:'news', prompt:'Will the bridge toll go up this quarter?', baseOdds:0.72, volatility:0.03,
+    yes:'Bridge toll goes up, bridge remains exactly the same bridge', no:'Bridge toll holds steady, commuters suspicious'},
+  {id:'pothole-mayor', category:'news', prompt:'Will the mayor survive the pothole scandal?', baseOdds:0.6, volatility:0.035,
+    yes:'Mayor survives pothole scandal, pothole does not', no:'Mayor resigns over pothole scandal. Pothole unavailable for comment'},
+  {id:'central-bank-transitory', category:'news', prompt:"Will the central bank say 'transitory' at the press conference?", baseOdds:0.75, volatility:0.03, subject:{assetId:'eurusd', sign:1},
+    yes:"Central bank says 'transitory' four times, sets new personal record", no:"Central bank avoids 'transitory' entirely, reporters disappointed"},
+  {id:'fed-lottery', category:'news', prompt:'Will the Fed chair actually win the lottery?', baseOdds:0.1, volatility:0.03,
+    yes:'Fed chair wins the lottery. Markets interpret this as a signal', no:'Fed chair loses the lottery, recommends "patience"'},
+
+  // --- Weather (simulated — no real data, see the spec's v2 note) ---
+  {id:'concert-rain', category:'weather', prompt:'Will it rain on the outdoor concert?', baseOdds:0.35, volatility:0.04,
+    yes:'Outdoor concert rained out, band plays the parking garage instead', no:'Concert stays dry. Forecasters baffled, as usual'},
+  {id:'heatwave-break', category:'weather', prompt:'Will the heat wave break before the weekend?', baseOdds:0.3, volatility:0.035,
+    yes:'Heat wave breaks, city collectively un-sticks from its chairs', no:'Heat wave holds. Index fund holders bored and also sweaty'},
+  {id:'snow-day', category:'weather', prompt:'Will schools call a snow day?', baseOdds:0.2, volatility:0.04,
+    yes:"Snow day called. Children rejoice, parents check their margin", no:'No snow day. Two flakes fell, both reported to the district'},
+  {id:'ferry-fog', category:'weather', prompt:'Will fog cancel the morning ferry?', baseOdds:0.25, volatility:0.035,
+    yes:'Fog cancels the ferry, commuters stare meaningfully at the water', no:'Ferry runs on time through the fog, captain "mostly guessed"'},
+  {id:'umbrella-carnage', category:'weather', prompt:'Will the wind destroy 50+ umbrellas downtown?', baseOdds:0.7, volatility:0.035,
+    yes:'Wind claims 50+ umbrellas downtown, memorial planned', no:'Umbrellas survive the wind, umbrella industry quietly furious'},
+  {id:'sunny-market', category:'weather', prompt:'Will the farmers market get a sunny Saturday?', baseOdds:0.75, volatility:0.035,
+    yes:'Sunny Saturday at the farmers market, kale moves at a premium', no:'Farmers market rained out, kale left to fend for itself'},
+
+  // --- Meta (resolves against the actual simulated game state) ---
+  {id:'meta-dogo-green', category:'meta', prompt:'Will DOGO close green?', volatility:0.03,
+    resolveAgainst:{type:'assetMove', assetId:'doge', dir:'up', pct:0},
+    yes:'DOGO closes green — the group chat is insufferable again', no:'DOGO closes red. The group chat has gone quiet'},
+  {id:'meta-btcx-red', category:'meta', prompt:'Will BTCX close red?', volatility:0.03,
+    resolveAgainst:{type:'assetMove', assetId:'btcx', dir:'down', pct:0},
+    yes:'BTCX closes red, whale wallets "just rebalancing"', no:'BTCX closes green, laser-eyes avatars return'},
+  {id:'meta-rugx-halved', category:'meta', prompt:'Will RUGX lose half its value before close?', volatility:0.035,
+    resolveAgainst:{type:'assetMove', assetId:'rugx', dir:'down', pct:50},
+    yes:'RUGX halves before close. Devs still "taking a break"', no:'RUGX survives the window with half its value intact. Somehow'},
+  {id:'meta-aapl-pop', category:'meta', prompt:'Will AAPL close up 2% or more?', volatility:0.025,
+    resolveAgainst:{type:'assetMove', assetId:'aapl', dir:'up', pct:2},
+    yes:'AAPL pops 2%+, analysts claim they called it', no:'AAPL fails to pop 2%, analysts claim they called that too'},
+  {id:'meta-gmtx-red', category:'meta', prompt:'Will GMTX close red?', volatility:0.03,
+    resolveAgainst:{type:'assetMove', assetId:'gmtx', dir:'down', pct:0},
+    yes:'GMTX closes red, recall rumors blamed', no:'GMTX closes green, recall rumors also blamed'},
+  {id:'meta-eurusd-green', category:'meta', prompt:'Will EUR/USD close green?', volatility:0.03,
+    resolveAgainst:{type:'assetMove', assetId:'eurusd', dir:'up', pct:0},
+    yes:'EUR/USD closes green. The intern says it was the pips', no:'EUR/USD closes red. The intern says it was the pips'},
+  // Early-resolves YES the moment it happens (see resolveDuePredictions).
+  {id:'meta-you-broke', category:'meta', prompt:'Will you go broke before this closes?', baseOdds:0.08, volatility:0.02, window:[20, 60], noHype:true,
+    resolveAgainst:{type:'playerBroke'},
+    yes:'Local trader goes broke, market called it', no:'Local trader stays solvent. Market shrugs, mildly disappointed'},
 ];
 
 const ASSET_DEFS = [
@@ -796,10 +909,9 @@ const ASSET_DEFS = [
   {id:'doge', name:'DOGO', sub:'Meme crypto', tier:'crypto', type:'crypto', meme:true, price:0.6, vol:0.05, drift:-0.0002, shares:140000000000, icon:'D', color:'var(--cash)'},
   {id:'btcx', name:'BTCX', sub:'Flagship crypto', tier:'crypto', type:'crypto', price:420, vol:0.03, drift:0.0002, shares:19000000, icon:'B', color:'var(--cash)'},
   {id:'rugx', name:'RUGX', sub:'EXTRA RISKY · unhinged meme coin, no floor no ceiling', tier:'crypto', type:'crypto', meme:true, price:150, vol:0.14, drift:0, meanReversion:0.02, meanReversionChance:0.3, meanPrice:150, shockMult:12, shares:900000000, icon:'☠', color:'var(--down)'},
-  {id:'rain', name:'Rain tomorrow', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.5, vol:0.04, drift:0, icon:'?', color:'var(--down)'},
-  {id:'elec', name:'Mayor wins reelection', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.62, vol:0.035, drift:0, icon:'?', color:'var(--down)'},
-  {id:'sports', name:'Home team wins tonight', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.55, vol:0.038, drift:0, icon:'?', color:'var(--down)'},
-  {id:'traffic', name:'Traffic clears before 6pm', sub:'Prediction · resolves fast', tier:'prediction', type:'prediction', price:0.45, vol:0.042, drift:0, icon:'?', color:'var(--down)'},
+  // Prediction slots — the market each one shows lives in state.predictions
+  // (see openPredictionMarket), not here.
+  ...PREDICTION_SLOT_IDS.map(id=>({id, name:'Prediction market', sub:'Prediction', tier:'prediction', type:'prediction', price:0.5, vol:0.035, drift:0, icon:'?', color:'var(--down)'})),
   {id:'eurusd', name:'EUR/USD', sub:'Forex pair', tier:'forex', type:'forex', price:1.08, vol:0.004, drift:0, icon:'€', color:'var(--text-dim)'},
   // The whale asset: priced high because shares outstanding are deliberately
   // tiny (1.5M), not because the company is small — same trick the real
@@ -857,7 +969,7 @@ const TUTORIAL_STEPS = [
     advance:'button' },
   { id:'tiers', target:()=>document.querySelector('#riskyList .asset.locked'), skipIfNoTarget:true,
     title:'Riskier markets unlock as you grow',
-    body:'Crypto, predictions, and forex all unlock once your net worth crosses their threshold. Grind the boring stuff, unlock the fun stuff. Keep playing — the walkthrough picks back up once things go sideways.',
+    body:'Crypto and forex unlock here once your net worth crosses their threshold — prediction markets get a tab of their own. Grind the boring stuff, unlock the fun stuff. Keep playing — the walkthrough picks back up once things go sideways.',
     advance:'button' },
 ];
 // The old "what happens if you go broke" / "that's the loop" narration steps
@@ -870,7 +982,7 @@ const TUTORIAL_STEPS = [
 // moment it unlocks — never a modal, per the "no interstitials on unlock" rule.
 const TIER_EXPLAINERS = {
   crypto: {icon:'🎢', title:'Crypto unlocked', body:'Meme-driven, high volatility. Prices can double or crater in a single tick — treat it like a slot machine, not a savings account.'},
-  prediction: {icon:'⚡', title:'Prediction markets unlocked', body:'Fast-resolving bets on real-world-ish outcomes. Price is just implied odds in cents — pick Yes or No depending on which side you think is mispriced.'},
+  prediction: {icon:'⚡', title:'Prediction markets unlocked', body:"Bets on whether things happen. Price is implied odds in cents — buy Yes or No depending on which side you think is mispriced. Winners pay $1 a share at close. Markets rotate as they resolve, and the hype market up top closes in about a minute."},
   forex: {icon:'💱', title:'Forex desk unlocked', body:'Currency pairs. Slower and steadier than crypto — a different flavor of degenerate.'},
   legend: {icon:'👑', title:'Legend tier unlocked', body:'One holding, priced for people who no longer check their bank balance. Barely moves — the point isn\'t the swings, it\'s owning a piece of something that outlasts you.'},
 };
@@ -939,8 +1051,8 @@ function defaultState(){
     winStreak: 0,
     activeChallenges: [],
     challengeTradedTiers: [],
-    predictionResolveAt: {},
-    predictionNames: {},
+    predictions: {},          // slot id -> open market, see openPredictionMarket
+    predictionRecent: [],     // pool ids that just resolved, kept out of rotation for a bit
     hotAssetId: null,
     hotAssetUntil: 0,
     flashCrash: null,
@@ -984,24 +1096,12 @@ function defaultRun(number){
 
 function allAssets(){ return ASSET_DEFS.concat(SAFE_DEFS); }
 
-// Prediction markets keep their id/price/vol forever but get a fresh
-// question each time they resolve (see pickPredictionQuestion) — this is
+// Prediction slots show whatever market is currently open in them — this is
 // the one place that matters, everywhere else that wants an asset's display
 // name should go through here instead of reading a.name directly.
-function assetName(a){ return state.predictionNames[a.id] || a.name; }
-
-// Picks a fresh question for a resolving prediction market, avoiding
-// whatever's currently showing on any OTHER active prediction slot (so two
-// markets never show the same question at once) and never repeating what
-// this one just had.
-function pickPredictionQuestion(resolvingAssetId){
-  const inUse = new Set(
-    ASSET_DEFS.filter(a=>a.type==='prediction' && a.id!==resolvingAssetId).map(a=>assetName(a))
-  );
-  const justHad = assetName(ASSET_DEFS.find(a=>a.id===resolvingAssetId));
-  let pool = PREDICTION_QUESTION_BANK.filter(q=>q!==justHad && !inUse.has(q));
-  if(!pool.length) pool = PREDICTION_QUESTION_BANK.filter(q=>q!==justHad); // bank exhausted (shouldn't happen with 4 slots) — just don't repeat itself
-  return pool[Math.floor(Math.random()*pool.length)];
+function assetName(a){
+  const entry = a.type === 'prediction' && predictionEntry(state.predictions[a.id]);
+  return entry ? entry.prompt : a.name;
 }
 
 function loadState(){
@@ -1063,13 +1163,6 @@ function loadState(){
   if(state.winStreak === undefined) state.winStreak = 0;
   if(state.activeChallenges === undefined) state.activeChallenges = [];
   if(state.challengeTradedTiers === undefined) state.challengeTradedTiers = [];
-  if(state.predictionResolveAt === undefined) state.predictionResolveAt = {};
-  if(state.predictionNames === undefined) state.predictionNames = {};
-  ASSET_DEFS.filter(a=>a.type==='prediction').forEach(a=>{
-    if(state.predictionResolveAt[a.id] === undefined){
-      state.predictionResolveAt[a.id] = Date.now() + randBetween(PREDICTION_RESOLVE_MIN_S, PREDICTION_RESOLVE_MAX_S)*1000;
-    }
-  });
   if(state.hotAssetId === undefined){ state.hotAssetId = null; state.hotAssetUntil = 0; }
   if(state.flashCrash === undefined) state.flashCrash = null;
   if(state.flashCrashActiveMs === undefined) state.flashCrashActiveMs = 0;
@@ -1096,6 +1189,32 @@ function loadState(){
   const runDefaults = defaultRun(state.run.number || 1);
   Object.keys(runDefaults).forEach(k=>{ if(state.run[k] === undefined) state.run[k] = runDefaults[k]; });
   if(state.runHistory === undefined) state.runHistory = [];
+  migrateLegacyPredictions();
+  if(state.predictions === undefined) state.predictions = {};
+  if(state.predictionRecent === undefined) state.predictionRecent = [];
+  PREDICTION_SLOT_IDS.forEach(id=>{
+    // A pool entry can disappear between versions — reopen rather than crash.
+    if(!predictionEntry(state.predictions[id])) openPredictionMarket(id);
+  });
+}
+
+// Saves from before PREDICTION_MARKETS_SPEC.md had 4 fixed markets with their
+// own ids. Cash out any position at its last price (it'd otherwise be stranded
+// in an asset that no longer exists) and drop their per-asset bookkeeping.
+function migrateLegacyPredictions(){
+  LEGACY_PREDICTION_IDS.forEach(id=>{
+    if(state.prices[id] === undefined) return;
+    const p = state.prices[id];
+    const refund = (state.holdings[id]||0)*p + (state.holdingsNo[id]||0)*(1-p);
+    if(refund > 0.005){
+      state.cash += refund;
+      addLog('Old prediction market delisted — position cashed out', '+'+fmt(refund), 'var(--cash)');
+    }
+    [state.prices, state.startPrices, state.holdings, state.holdingsNo, state.costBasis, state.costBasisNo, state.run.heldSince].forEach(m=>{ delete m[id]; });
+    if(state.hotAssetId === id) state.hotAssetId = null;
+  });
+  delete state.predictionResolveAt;
+  delete state.predictionNames;
 }
 
 function saveState(){ state.lastSeenAt = Date.now(); localStorage.setItem(SAVE_KEY, JSON.stringify(state)); }
@@ -1141,6 +1260,7 @@ function tickPrices(){
     if(liveEvent.remainingTicks <= 0) resolveLiveEvent();
   }
   allAssets().forEach(a=>{
+    if(a.type === 'prediction') return; // priced off their own odds model, see tickPredictions
     if(scriptedAssetThisTick === 'ALL' && a.type !== 'safe') return; // crash step owns this tick for every risky asset
     if(a.id === scriptedAssetThisTick) return; // scripted event owns this tick's move
     if(liveEvent && a.id === liveEvent.assetId) return; // live event owns this tick's move
@@ -1171,10 +1291,7 @@ function tickPrices(){
     const shockMult = a.shockMult || 6;
     const shock = (Math.random() < effVol * 0.15) ? (Math.random()<0.5?-1:1) * effVol * shockMult : 0;
     const change = effDrift(a) + revert + (Math.random()*2-1) * effVol + shock;
-    let p = state.prices[a.id] * (1 + change);
-    if(a.type === 'prediction') p = Math.min(0.97, Math.max(0.03, p));
-    else p = Math.max(0.01, p);
-    state.prices[a.id] = p;
+    state.prices[a.id] = Math.max(0.01, state.prices[a.id] * (1 + change));
     if(Math.abs(shock) > 0){
       bigMove = {asset:a, dir: shock>0?'up':'down'};
     }
@@ -1194,6 +1311,7 @@ function tickPrices(){
   recordSessionPriceHistory();
   applyOnboardingBoost();
   accrueDebt();
+  tickPredictions();
   resolveDuePredictions();
   maybeRotateHotAsset();
   maybeTriggerLiveEvent();
@@ -1251,7 +1369,7 @@ function applyCryptoLaunchStep(){
 }
 
 function applyCrashTick(){
-  ASSET_DEFS.forEach(a=>{ state.prices[a.id] = Math.max(0.01, state.prices[a.id] * state.crashPerTickMult); });
+  ASSET_DEFS.forEach(a=>{ if(a.type !== 'prediction') state.prices[a.id] = Math.max(0.01, state.prices[a.id] * state.crashPerTickMult); });
   state.crashTicksLeft--;
   if(state.crashTicksLeft <= 0 && state.crashWipeCashPending){
     state.crashWipeCashPending = false;
@@ -1321,27 +1439,24 @@ function runOfflineRecap(){
   const ticksElapsed = Math.floor(elapsedMs / TICK_MS);
   const simTicks = Math.min(ticksElapsed, OFFLINE_RECAP_MAX_TICKS);
 
+  // Prediction markets are skipped throughout — tickPredictions() catches
+  // them up exactly on the first live tick (and resolves any that closed).
+  const walked = allAssets().filter(a=>a.type !== 'prediction');
   for(let i=0; i<simTicks; i++){
-    allAssets().forEach(a=>{
+    walked.forEach(a=>{
       const shock = (Math.random() < a.vol * 0.15) ? (Math.random()<0.5?-1:1) * a.vol * 6 : 0;
       const change = effDrift(a) + (Math.random()*2-1) * a.vol + shock;
-      let p = state.prices[a.id] * (1 + change);
-      if(a.type === 'prediction') p = Math.min(0.97, Math.max(0.03, p));
-      else p = Math.max(0.01, p);
-      state.prices[a.id] = p;
+      state.prices[a.id] = Math.max(0.01, state.prices[a.id] * (1 + change));
     });
     if(state.debt > 0) state.debt = state.debt * (1 + state.debtRate/12000);
   }
   const remainingTicks = ticksElapsed - simTicks;
   if(remainingTicks > 0){
-    allAssets().forEach(a=>{
+    walked.forEach(a=>{
       const drift = effDrift(a) * remainingTicks;
       const vol = a.vol * Math.sqrt(remainingTicks);
       const change = drift + (Math.random()*2-1) * vol;
-      let p = state.prices[a.id] * (1 + change);
-      if(a.type === 'prediction') p = Math.min(0.97, Math.max(0.03, p));
-      else p = Math.max(0.01, p);
-      state.prices[a.id] = p;
+      state.prices[a.id] = Math.max(0.01, state.prices[a.id] * (1 + change));
     });
     if(state.debt > 0) state.debt = state.debt * Math.pow(1 + state.debtRate/12000, remainingTicks);
   }
@@ -1349,7 +1464,7 @@ function runOfflineRecap(){
   // Clamp total offline movement per asset, scaled by its own volatility —
   // this is the actual fix for runaway multi-day drift, independent of how
   // many ticks were simulated above.
-  allAssets().forEach(a=>{
+  walked.forEach(a=>{
     const before = pricesBefore[a.id];
     const maxSwing = Math.min(OFFLINE_RECAP_MAX_SWING, a.vol * OFFLINE_RECAP_MAX_SIGMA_MULT);
     state.prices[a.id] = Math.min(before * (1 + maxSwing), Math.max(before * (1 - maxSwing), state.prices[a.id]));
@@ -1365,7 +1480,7 @@ function runOfflineRecap(){
 
   const nwAfter = netWorth();
   let biggestMover = null, biggestPct = 0;
-  allAssets().forEach(a=>{
+  walked.forEach(a=>{
     const before = pricesBefore[a.id];
     const pct = ((state.prices[a.id]-before)/before)*100;
     if(Math.abs(pct) > Math.abs(biggestPct)){ biggestPct = pct; biggestMover = a; }
@@ -1499,6 +1614,7 @@ function maybeTriggerLiveEvent(){
     choice: null,
   };
   pushHeadline(`${headline} (via ${source.label})`, null);
+  nudgePredictionsForAsset(tmpl.assetId, claim === 'up' ? 1 : -1, PREDICTION_EVENT_NUDGE);
   renderLiveEventBanner();
   nextLiveEventAt = Date.now() + randBetween(LIVE_EVENT_MIN_GAP_MS, LIVE_EVENT_MAX_GAP_MS);
 }
@@ -1576,52 +1692,260 @@ function hideLiveEventBanner(){
   if(el) el.classList.remove('show');
 }
 
-/* ---------- 2b. Short-fuse predictions ---------- */
-// Rather than a whole separate mini-market UI, the existing prediction
-// assets themselves now periodically resolve (payout at 97¢ or wipe to 0)
-// and reopen at a fresh ~50/50 price — same trading UI, real "resolves soon"
-// payoff, without a second parallel trading system to maintain.
+/* ---------- 2b. Prediction markets (PREDICTION_MARKETS_SPEC.md) ---------- */
+// Each slot in PREDICTION_SLOT_IDS holds one open market from PREDICTION_POOL.
+// On resolution it pays out ($1 per winning unit) and the slot reopens with a
+// fresh draw — same trading UI, a rotating list instead of a fixed one.
+//
+// Scripted markets (everything but meta) roll their true outcome up front,
+// hidden. The price then has to drift toward that outcome as the deadline
+// nears WITHOUT just leaking it — otherwise buying whatever's at 85¢ near the
+// end is free money. So the hidden roll is modeled as a Brownian path W over
+// the market's window (tau 0..1) that's conditioned to end on the right side
+// of a threshold c: YES iff W(1) > c, with c set so P(YES) = baseOdds. The
+// fair price is P(W(1) > c | W(tau)) — calibrated at every point, and it
+// converges on the real outcome as time runs out, exactly like a real market
+// that "knows something".
+
+// Standard normal CDF (Abramowitz-Stegun 7.1.26, |err| < 1.5e-7).
+function normCdf(x){
+  const t = 1 / (1 + 0.3275911 * Math.abs(x) / Math.SQRT2);
+  const y = 1 - (((((1.061405429*t - 1.453152027)*t) + 1.421413741)*t - 0.284496736)*t + 0.254829592)*t * Math.exp(-x*x/2);
+  return x >= 0 ? (1 + y)/2 : (1 - y)/2;
+}
+// Inverse standard normal CDF (Acklam's rational approximation).
+function normInv(p){
+  const a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.3577518672690, -30.66479806614716, 2.506628277459239];
+  const b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572];
+  const c = [-0.007784894002430293, -0.3223964580411365, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
+  const d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416];
+  const lo = 0.02425;
+  if(p < lo){
+    const q = Math.sqrt(-2*Math.log(p));
+    return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);
+  }
+  if(p > 1 - lo){
+    const q = Math.sqrt(-2*Math.log(1-p));
+    return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);
+  }
+  const q = p - 0.5, r = q*q;
+  return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q / (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1);
+}
+function randNormal(){
+  return Math.sqrt(-2*Math.log(1 - Math.random())) * Math.cos(2*Math.PI*Math.random());
+}
+
+function predictionEntry(m){ return m ? PREDICTION_POOL.find(e=>e.id===m.poolId) : null; }
+
+// Authored odds get jittered so a repeat draw isn't priced identically.
+function rollPredictionOdds(base){
+  return Math.min(0.94, Math.max(0.06, base + randBetween(-0.07, 0.07)));
+}
+
+function pickPredictionEntry(slotId, justHadId){
+  const hype = slotId === PREDICTION_HYPE_SLOT;
+  const inUse = new Set(PREDICTION_SLOT_IDS.filter(id=>id!==slotId && state.predictions[id]).map(id=>state.predictions[id].poolId));
+  const recent = new Set(state.predictionRecent);
+  const unlocked = unlockedTierIds();
+  const eligible = PREDICTION_POOL.filter(e=>{
+    if(inUse.has(e.id) || e.id === justHadId) return false;
+    if(hype && e.noHype) return false;
+    // Meta markets about an asset the player can't see yet would read as nonsense.
+    const ra = e.resolveAgainst;
+    if(ra && ra.assetId){
+      const a = ASSET_DEFS.find(x=>x.id===ra.assetId);
+      if(!a || !unlocked.includes(a.tier)) return false;
+    }
+    return true;
+  });
+  const fresh = eligible.filter(e=>!recent.has(e.id));
+  const pool = fresh.length ? fresh : eligible;
+  return pool[Math.floor(Math.random()*pool.length)];
+}
+
+function openPredictionMarket(slotId, justHadId){
+  const entry = pickPredictionEntry(slotId, justHadId);
+  const hype = slotId === PREDICTION_HYPE_SLOT;
+  const now = Date.now();
+  const win = entry.window || PREDICTION_CATEGORIES[entry.category].window;
+  const durMs = hype ? randBetween(PREDICTION_HYPE_WINDOW_S[0], PREDICTION_HYPE_WINDOW_S[1])*1000
+                     : randBetween(win[0], win[1])*60000;
+  const m = {
+    poolId: entry.id, hype, openedAt: now, resolveAt: now + durMs, lastAt: now, sentiment: 0,
+    // Cosmetic liquidity flavor (spec: "cheap to fake") — grows toward close.
+    traders0: Math.round(randBetween(40, 400) * (hype ? 3 : 1)),
+    perTrader: randBetween(25, 180),
+  };
+  const ra = entry.resolveAgainst;
+  if(ra && ra.type === 'assetMove') m.ref = state.prices[ra.assetId];
+  else if(ra && ra.type === 'playerBroke') m.ref = state.run.timesBroke;
+  else {
+    const odds = rollPredictionOdds(entry.baseOdds);
+    m.c = -normInv(odds);
+    m.outcome = Math.random() < odds ? 'yes' : 'no';
+    // Endpoint of the hidden path, drawn from the side of c the outcome is on.
+    const pc = normCdf(m.c);
+    const u = m.outcome === 'yes' ? randBetween(pc, 1) : randBetween(0, pc);
+    m.wEnd = normInv(Math.min(1 - 1e-9, Math.max(1e-9, u)));
+    m.w = 0;
+  }
+  state.predictions[slotId] = m;
+  const price = predictionDisplayPrice(m, entry, now);
+  state.prices[slotId] = price;
+  state.startPrices[slotId] = price;
+  // A new market is a brand new question — session baselines, high/low and
+  // sparkline from the old one no longer mean anything.
+  sessionStartPrices[slotId] = price;
+  sessionPriceExtremes[slotId] = {high: price, low: price};
+  sessionPriceHistory[slotId] = [price];
+}
+
+function predictionTau(m, now){
+  return Math.min(1, Math.max(0, (now - m.openedAt) / (m.resolveAt - m.openedAt)));
+}
+
+// The market's honest odds given everything visible right now.
+function predictionFairPrice(m, entry, now){
+  const tau = predictionTau(m, now);
+  const ra = entry.resolveAgainst;
+  if(ra && ra.type === 'assetMove'){
+    // Same question, asked of the real price: how likely is the asset to end
+    // past the line, given where it is now and how much time (and volatility)
+    // it has left? Uniform(-vol,vol) ticks have sd vol/sqrt(3).
+    const a = ASSET_DEFS.find(x=>x.id===ra.assetId);
+    const x = Math.log(state.prices[ra.assetId] / m.ref);
+    const line = Math.log(1 + (ra.dir === 'up' ? 1 : -1) * ra.pct/100);
+    const ticksLeft = Math.max(0, (m.resolveAt - now) / TICK_MS);
+    const sd = a.vol / Math.sqrt(3) * Math.sqrt(ticksLeft);
+    const edge = ra.dir === 'up' ? x - line : line - x;
+    if(sd < 1e-9) return edge > 0 ? 1 : 0;
+    return normCdf(edge / sd);
+  }
+  if(ra && ra.type === 'playerBroke'){
+    if(state.run.timesBroke > m.ref) return 1;
+    return entry.baseOdds * (1 - tau);
+  }
+  if(tau >= 1) return m.outcome === 'yes' ? 1 : 0;
+  return normCdf((m.w - m.c) / Math.sqrt(1 - tau));
+}
+
+function predictionDisplayPrice(m, entry, now){
+  const fade = Math.min(1, (1 - predictionTau(m, now)) * 4);
+  const p = predictionFairPrice(m, entry, now) + m.sentiment * fade;
+  return Math.min(0.97, Math.max(0.03, p));
+}
+
+// Advances every open market to `now`. Elapsed-time based (not per-tick), so
+// the first tick after an offline gap just jumps the hidden path forward by
+// the whole gap — a Brownian bridge step is exact for any time step.
+function tickPredictions(){
+  const now = Date.now();
+  PREDICTION_SLOT_IDS.forEach(id=>{
+    const m = state.predictions[id];
+    const entry = predictionEntry(m);
+    if(!entry) return;
+    const dt = now - m.lastAt;
+    if(dt <= 0) return;
+    if(m.wEnd !== undefined){
+      const t0 = predictionTau(m, m.lastAt), t1 = predictionTau(m, now);
+      if(t1 >= 1) m.w = m.wEnd;
+      else if(t1 > t0){
+        const mean = m.w + (m.wEnd - m.w) * (t1 - t0) / (1 - t0);
+        const variance = (t1 - t0) * (1 - t1) / (1 - t0);
+        m.w = mean + Math.sqrt(variance) * randNormal();
+      }
+    }
+    const ticks = dt / TICK_MS;
+    m.sentiment *= Math.pow(PREDICTION_SENTIMENT_DECAY, ticks);
+    if(ticks < 5){ // ordinary live tick — a long gap just lets the noise decay out
+      const volMult = id === state.hotAssetId ? HOT_VOL_MULT : 1;
+      m.sentiment += randNormal() * entry.volatility * PREDICTION_SENTIMENT_NOISE * volMult;
+    }
+    m.sentiment = Math.min(PREDICTION_SENTIMENT_MAX, Math.max(-PREDICTION_SENTIMENT_MAX, m.sentiment));
+    m.lastAt = now;
+    state.prices[id] = predictionDisplayPrice(m, entry, now);
+  });
+}
+
+// A rumor or hot rotation on an asset leans on any open market whose subject
+// it is — a temporary mispricing (sentiment decays), not a change to the
+// hidden outcome.
+function nudgePredictionsForAsset(assetId, dir, amount){
+  PREDICTION_SLOT_IDS.forEach(id=>{
+    const m = state.predictions[id];
+    const entry = predictionEntry(m);
+    if(!entry || !entry.subject || entry.subject.assetId !== assetId) return;
+    m.sentiment = Math.min(PREDICTION_SENTIMENT_MAX, Math.max(-PREDICTION_SENTIMENT_MAX, m.sentiment + dir * entry.subject.sign * amount));
+    state.prices[id] = predictionDisplayPrice(m, entry, Date.now());
+  });
+}
+
 function resolveDuePredictions(){
   const now = Date.now();
-  ASSET_DEFS.filter(a=>a.type==='prediction').forEach(a=>{
-    if(!state.predictionResolveAt[a.id] || now < state.predictionResolveAt[a.id]) return;
-    const price = state.prices[a.id]; // implied odds — also the win probability
-    const won = Math.random() < price;
-    const heldYes = state.holdings[a.id]||0;
-    const heldNo = state.holdingsNo[a.id]||0;
-    if(won){
-      if(heldYes > 0){
-        const payout = heldYes * 0.97;
-        state.cash += payout;
-        addLog(`${assetName(a)} resolved YES`, '+'+fmt(payout), 'var(--up)');
-      } else if(heldNo === 0){
-        pushHeadline(`${assetName(a)} resolves YES`, 'up');
-      }
-      if(heldNo > 0) addLog(`${assetName(a)} resolved YES`, '-'+fmt(heldNo*(1-price)), 'var(--down)');
-    } else {
-      if(heldNo > 0){
-        const payout = heldNo * 0.97;
-        state.cash += payout;
-        addLog(`${assetName(a)} resolved NO`, '+'+fmt(payout), 'var(--up)');
-      } else if(heldYes === 0){
-        pushHeadline(`${assetName(a)} resolves NO`, 'down');
-      }
-      if(heldYes > 0) addLog(`${assetName(a)} resolved NO`, '-'+fmt(heldYes*price), 'var(--down)');
+  PREDICTION_SLOT_IDS.forEach(id=>{
+    const m = state.predictions[id];
+    const entry = predictionEntry(m);
+    if(!entry) return;
+    const ra = entry.resolveAgainst;
+    let won = null;
+    if(ra && ra.type === 'playerBroke' && state.run.timesBroke > m.ref) won = true; // "before this closes" — resolves the moment it happens
+    else if(now >= m.resolveAt){
+      if(!ra) won = m.outcome === 'yes';
+      else if(ra.type === 'assetMove'){
+        const chg = state.prices[ra.assetId] / m.ref - 1;
+        won = ra.dir === 'up' ? chg > ra.pct/100 : chg < -ra.pct/100;
+      } else won = false;
     }
-    state.holdings[a.id] = 0;
-    state.costBasis[a.id] = 0;
-    state.holdingsNo[a.id] = 0;
-    state.costBasisNo[a.id] = 0;
-    delete state.run.heldSince[a.id];
-    const freshPrice = randBetween(0.4, 0.6);
-    state.prices[a.id] = freshPrice;
-    state.startPrices[a.id] = freshPrice;
-    sessionStartPrices[a.id] = freshPrice; // otherwise the Markets list would show a fake ~huge swing off the pre-resolution price
-    sessionPriceExtremes[a.id] = { high: freshPrice, low: freshPrice }; // a resolved market is a brand new question — old high/low no longer means anything
-    sessionPriceHistory[a.id] = [freshPrice];
-    state.predictionNames[a.id] = pickPredictionQuestion(a.id); // resolution messages above already read the OLD question via assetName(a) — reassign only now that they're done
-    state.predictionResolveAt[a.id] = now + randBetween(PREDICTION_RESOLVE_MIN_S, PREDICTION_RESOLVE_MAX_S)*1000;
+    if(won === null) return;
+    settlePrediction(id, entry, won);
+    state.predictionRecent.push(entry.id);
+    if(state.predictionRecent.length > PREDICTION_RECENT_MAX) state.predictionRecent.shift();
+    openPredictionMarket(id, entry.id);
   });
+}
+
+function settlePrediction(id, entry, won){
+  const side = won ? 'YES' : 'NO';
+  const winUnits = (won ? state.holdings[id] : state.holdingsNo[id]) || 0;
+  const loseUnits = (won ? state.holdingsNo[id] : state.holdings[id]) || 0;
+  const winBasis = (won ? state.costBasis[id] : state.costBasisNo[id]) || 0;
+  const loseBasis = (won ? state.costBasisNo[id] : state.costBasis[id]) || 0;
+  let net = 0;
+  if(winUnits > 0.0001){
+    const payout = winUnits * PREDICTION_PAYOUT;
+    const profit = payout - winUnits * winBasis;
+    state.cash += payout;
+    net += profit;
+    addLog(`${entry.prompt} → ${side}`, '+'+fmt(payout), 'var(--up)');
+    if(winBasis > 0 && profit > 0 && (!state.run.bestTrade || profit > state.run.bestTrade.profit)){
+      state.run.bestTrade = {profit, asset: entry.prompt};
+    }
+  }
+  if(loseUnits > 0.0001){
+    net -= loseUnits * loseBasis;
+    addLog(`${entry.prompt} → ${side}`, '-'+fmt(loseUnits * loseBasis), 'var(--down)');
+  }
+  pushHeadline(won ? entry.yes : entry.no, won ? 'up' : 'down');
+  if(winUnits > 0.0001 || loseUnits > 0.0001){
+    showToast(`Resolved ${side} · ${net>=0?'+':''}${fmt(net)}`);
+  }
+  state.holdings[id] = 0;
+  state.costBasis[id] = 0;
+  state.holdingsNo[id] = 0;
+  state.costBasisNo[id] = 0;
+  delete state.run.heldSince[id];
+  // The sheet would otherwise silently retarget to the slot's next question.
+  if(currentTradeAsset && currentTradeAsset.id === id && document.getElementById('tradeOverlay').classList.contains('show')){
+    closeOverlay('tradeOverlay');
+  }
+}
+
+function debugResolvePredictions(){
+  PREDICTION_SLOT_IDS.forEach(id=>{ if(state.predictions[id]) state.predictions[id].resolveAt = Date.now(); });
+  tickPredictions();
+  resolveDuePredictions();
+  saveState();
+  render();
 }
 
 /* ---------- 2c. Hot asset rotation ---------- */
@@ -1637,12 +1961,19 @@ function maybeRotateHotAsset(){
   if(document.hidden) return;
   if(!state.hotAssetId && now >= nextHotAssetAt){
     const unlocked = unlockedTierIds();
-    const pool = ASSET_DEFS.filter(a=>unlocked.includes(a.tier));
+    // All prediction slots count as one candidate, or 8 of them would
+    // crowd every other asset out of the rotation.
+    const pool = ASSET_DEFS.filter(a=>unlocked.includes(a.tier) && a.type !== 'prediction');
+    if(unlocked.includes('prediction')) pool.push(ASSET_DEFS.find(a=>a.id===PREDICTION_SLOT_IDS[Math.floor(Math.random()*PREDICTION_SLOT_IDS.length)]));
     if(pool.length){
       const pick = pool[Math.floor(Math.random()*pool.length)];
       state.hotAssetId = pick.id;
       state.hotAssetUntil = now + HOT_ASSET_DURATION_MS;
-      pushHeadline(`${assetName(pick)} is heating up — traders piling in`, 'up');
+      if(pick.type === 'prediction') pushHeadline(`Action piling into "${assetName(pick)}"`, 'up');
+      else {
+        pushHeadline(`${assetName(pick)} is heating up — traders piling in`, 'up');
+        nudgePredictionsForAsset(pick.id, 1, PREDICTION_HOT_NUDGE);
+      }
     }
     nextHotAssetAt = now + randBetween(HOT_ASSET_MIN_GAP_MS, HOT_ASSET_MAX_GAP_MS);
   }
@@ -1714,15 +2045,11 @@ function applyFlashCrashTick(){
   if(!fc) return null;
   let owns = null;
   if(fc.phase === 'slide'){
-    ASSET_DEFS.forEach(a=>{ state.prices[a.id] = Math.max(0.01, state.prices[a.id] * fc.slidePerTick); });
+    ASSET_DEFS.forEach(a=>{ if(a.type !== 'prediction') state.prices[a.id] = Math.max(0.01, state.prices[a.id] * fc.slidePerTick); });
     applyDiamondHands(fc.slidePerTick);
     owns = 'ALL';
   } else if(fc.phase === 'rebound'){
-    ASSET_DEFS.forEach(a=>{
-      let p = state.prices[a.id] * fc.reboundPerTick;
-      if(a.type === 'prediction') p = Math.min(0.97, Math.max(0.03, p));
-      state.prices[a.id] = Math.max(0.01, p);
-    });
+    ASSET_DEFS.forEach(a=>{ if(a.type !== 'prediction') state.prices[a.id] = Math.max(0.01, state.prices[a.id] * fc.reboundPerTick); });
     owns = 'ALL';
   }
   fc.ticksLeft--;
@@ -2501,6 +2828,7 @@ function render(){
   }
 
   renderMarkets();
+  renderPredictions();
   renderHoldings();
   renderRetirement();
   renderProperties();
@@ -2514,7 +2842,10 @@ function render(){
   if(debugRow) debugRow.style.display = state.debugMode ? 'block' : 'none';
   checkBroke();
   if(tutorialActive) refreshTutorialSpotlight();
-  if(document.getElementById('tradeOverlay').classList.contains('show')){ refreshTradePriceLabel(); renderTradeChart(); } // live-updates the price label + sparkline while the sheet is open
+  if(document.getElementById('tradeOverlay').classList.contains('show')){
+    refreshTradePriceLabel(); renderTradeChart(); // live-updates the price label + sparkline while the sheet is open
+    if(currentTradeAsset.type === 'prediction') renderTradeStats(); // countdown/liquidity; deterministic, so no flicker
+  }
 }
 
 function randBetween(min, max){ return min + Math.random()*(max-min); }
@@ -2618,6 +2949,7 @@ function renderMarkets(){
 
   let lastTier = null;
   ASSET_DEFS.forEach(a=>{
+    if(a.type === 'prediction') return; // own tab, see renderPredictions
     const isLocked = !unlocked.includes(a.tier);
     const price = state.prices[a.id];
     const chg = sessionChangePct(a);
@@ -2673,6 +3005,91 @@ function renderMarkets(){
   });
 }
 
+// Own tab per PREDICTION_MARKETS_SPEC.md. Before the unlock it still renders
+// (full-screen locked explainer, same treatment as a locked asset card) rather
+// than the tab being hidden or dead to taps.
+function renderPredictions(){
+  const el = document.getElementById('predictionsList');
+  if(!el) return;
+  const tier = TIERS.find(t=>t.id==='prediction');
+  const locked = !unlockedTierIds().includes('prediction');
+  document.querySelector('nav button[data-view="predictions"]').classList.toggle('locked', locked);
+  if(locked){
+    const pct = Math.min(100, (state.highestNetWorth / tier.unlockAt) * 100);
+    el.innerHTML = `
+      <div class="locked-panel">
+        <div class="lp-icon">&#128274;</div>
+        <div class="lp-title">Prediction markets</div>
+        <div class="lp-sub">Unlocks at $${tier.unlockAt.toLocaleString()} net worth</div>
+        <p class="lp-body">Bet on whether Gary gets promoted, whether the raccoons get back in, whether DOGO closes green. Fast-resolving, mostly absurd, occasionally about you.</p>
+        <div class="lp-bar"><div style="width:${pct}%;"></div></div>
+      </div>`;
+    return;
+  }
+  const now = Date.now();
+  let html = '';
+  const ex = TIER_EXPLAINERS.prediction;
+  if(!state.explainersSeen.includes('prediction')){
+    html += `
+      <div class="explainer-card">
+        <div class="ex-head"><span class="ex-icon">${ex.icon}</span><span class="ex-title">${ex.title}</span></div>
+        <p class="ex-body">${ex.body}</p>
+        <button class="ex-dismiss" onclick="dismissExplainer('prediction')">Got it</button>
+      </div>`;
+  }
+  const slots = PREDICTION_SLOT_IDS.filter(id=>predictionEntry(state.predictions[id]));
+  const hype = slots.filter(id=>state.predictions[id].hype);
+  const rest = slots.filter(id=>!state.predictions[id].hype).sort((x,y)=>state.predictions[x].resolveAt - state.predictions[y].resolveAt);
+  if(hype.length){
+    html += `<h2>⚡ Hype market</h2>` + hype.map(id=>predictionCard(id, now)).join('');
+  }
+  html += `<h2>Open markets</h2><p class="pred-hint">Winning shares pay $1, losing ones pay nothing. Price is the crowd's odds — the crowd is usually right by the end. Usually.</p>`
+       + rest.map(id=>predictionCard(id, now)).join('');
+  el.innerHTML = html;
+}
+
+function predictionCard(id, now){
+  const a = ASSET_DEFS.find(x=>x.id===id);
+  const m = state.predictions[id];
+  const entry = predictionEntry(m);
+  const cat = PREDICTION_CATEGORIES[entry.category];
+  const price = state.prices[id];
+  const chgCents = Math.round((price - (sessionStartPrices[id] ?? price)) * 100);
+  const isHot = id === state.hotAssetId;
+  const flashClass = priceFlashClass(id, price, 0.02);
+  const {traders, action} = predictionLiquidity(m, now);
+  return `
+    <div class="asset pred-card ${m.hype?'hype':''} ${isHot?'hot':''} ${flashClass}" onclick="openTrade('${id}')">
+      <div class="asset-left">
+        <div class="asset-icon" style="background:color-mix(in srgb, ${cat.color} 18%, var(--surface2)); color:${cat.color};">${a.icon}</div>
+        <div>
+          <div class="pred-cat" style="color:${cat.color};">${cat.label}${isHot?' <span class="hot-badge">🔥 HOT</span>':''}</div>
+          <div class="asset-name">${entry.prompt}</div>
+          <div class="pred-meta">Closes in ${fmtCountdown(m.resolveAt - now)} · ${fmtBig(traders)} traders · ${fmtBig(action, true)}</div>
+        </div>
+      </div>
+      <div class="asset-right">
+        <div class="asset-price">${Math.round(price*100)}&cent; Yes</div>
+        <div class="asset-change" style="color:${chgCents>=0?'var(--up)':'var(--down)'}">${chgCents>=0?'+':''}${chgCents}&cent;</div>
+      </div>
+    </div>`;
+}
+
+// Cosmetic — a market gets busier as it nears close (and while it's hot).
+function predictionLiquidity(m, now){
+  const traders = Math.round(m.traders0 * (1 + 2.5 * predictionTau(m, now)));
+  return {traders, action: traders * m.perTrader};
+}
+
+function fmtCountdown(ms){
+  const s = Math.max(0, Math.round(ms/1000));
+  if(s < 60) return s+'s';
+  const mins = Math.round(s/60);
+  if(mins < 60) return mins+'m';
+  const h = Math.floor(mins/60);
+  return h+'h' + (mins%60 ? ' '+(mins%60)+'m' : '');
+}
+
 // Tracks each asset's price at the PREVIOUS render (any render, not just
 // ticks) so a card only flashes when its price actually moved since it was
 // last painted, not on every incidental re-render (opening a sheet, etc).
@@ -2681,12 +3098,13 @@ function renderMarkets(){
 // noise rather than a signal.
 const FLASH_MIN_PCT = 0.6;
 let lastRenderedPrices = {};
-function priceFlashClass(id, price){
+// minAbs (optional) swaps the % threshold for an absolute one — a 1¢ wobble
+// on a 20¢ prediction is "5%", which would flash nearly every tick.
+function priceFlashClass(id, price, minAbs){
   const prev = lastRenderedPrices[id];
   lastRenderedPrices[id] = price;
   if(prev === undefined || price === prev) return '';
-  const pct = Math.abs((price-prev)/prev) * 100;
-  if(pct < FLASH_MIN_PCT) return '';
+  if(minAbs !== undefined ? Math.abs(price-prev) < minAbs : Math.abs((price-prev)/prev) * 100 < FLASH_MIN_PCT) return '';
   return price > prev ? 'flash-up' : 'flash-down';
 }
 
@@ -2910,6 +3328,17 @@ function renderTradeStats(){
   let html = `
     <div><div class="trade-stat-label">Weekly High</div><div class="trade-stat-value">${fmtStatPrice(stats.high)}</div></div>
     <div><div class="trade-stat-label">Weekly Low</div><div class="trade-stat-value">${fmtStatPrice(stats.low)}</div></div>`;
+  if(a.type === 'prediction'){
+    const m = state.predictions[a.id];
+    const entry = predictionEntry(m);
+    const now = Date.now();
+    const {traders, action} = predictionLiquidity(m, now);
+    html += `
+    <div><div class="trade-stat-label">Closes in</div><div class="trade-stat-value">${fmtCountdown(m.resolveAt - now)}</div></div>
+    <div><div class="trade-stat-label">Category</div><div class="trade-stat-value">${PREDICTION_CATEGORIES[entry.category].label}</div></div>
+    <div><div class="trade-stat-label">Traders</div><div class="trade-stat-value">${fmtBig(traders)}</div></div>
+    <div><div class="trade-stat-label">In action</div><div class="trade-stat-value">${fmtBig(action, true)}</div></div>`;
+  }
   if(stats.marketCapText){
     html += `
     <div><div class="trade-stat-label">Volume</div><div class="trade-stat-value">${stats.volumeText}</div></div>
@@ -3253,6 +3682,7 @@ function resetRiskyPrices(){
   });
   state.run.marginLoan = {};
   ASSET_DEFS.forEach(a=>{
+    if(a.type === 'prediction') return; // odds, not prices — nothing to reset
     state.prices[a.id] = a.price;
     state.startPrices[a.id] = a.price;
     sessionStartPrices[a.id] = a.price;
