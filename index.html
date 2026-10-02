@@ -59,10 +59,9 @@ button{font-family:var(--font-ui); cursor:pointer; border:none; background:none;
 input{font-family:var(--font-mono);}
 
 /* ===== Ticker ===== */
-/* Scroll position is driven by JS (see tickerFrame), not a CSS % keyframe —
-   a %-based transform is relative to the ticker's OWN width, which changes
-   every time a headline is pushed, causing a visible jump/stutter mid-scroll.
-   A pixel offset computed in JS doesn't have that problem. */
+/* Scroll position is driven by JS (see tickerFrame) as a conveyor of spans,
+   not a CSS % keyframe — a %-based transform is relative to the ticker's OWN
+   width, which changes every time a headline is pushed. */
 #ticker-wrap{background:#0a0a0c; border-bottom:1px solid var(--border); overflow:hidden; white-space:nowrap; height:30px; display:flex; align-items:center; position:relative;}
 #ticker{display:inline-block; font-family:var(--font-mono); font-size:12px; color:var(--text-dim); will-change:transform;}
 #ticker span{margin-right:36px;}
@@ -2367,35 +2366,70 @@ function checkMarginCalls(){
 }
 
 /* ---------- ticker ---------- */
-let tickerQueue = [];
+// Conveyor belt, not a re-rendered strip: spans are appended at the right as
+// room opens up and removed once fully off the left edge (with tickerPos
+// reduced by exactly their width), so nothing already on screen ever moves
+// when a headline is pushed. The old approach rebuilt innerHTML on every push
+// and dropped the oldest item, which shifted the visible text sideways —
+// very noticeable during crashes, which push several headlines back-to-back.
+let tickerQueue = [];      // recent headlines, for repeat-avoidance + filler rotation
+let tickerPending = [];    // pushed but not yet on the belt
+let tickerFillIdx = 0;
 function pushHeadline(text, dir){
-  tickerQueue.push({text, dir: dir||null});
+  const h = {text, dir: dir||null};
+  tickerQueue.push(h);
   if(tickerQueue.length > 12) tickerQueue.shift();
-  renderTicker();
+  tickerPending.push(h);
+  // A burst (crash) shouldn't build a backlog that plays out for minutes.
+  if(tickerPending.length > 4) tickerPending.shift();
+}
+function nextTickerItem(){
+  if(tickerPending.length) return tickerPending.shift();
+  const src = tickerQueue.length ? tickerQueue : HEADLINE_POOL.map(h=>({text:h,dir:null}));
+  tickerFillIdx = (tickerFillIdx + 1) % src.length;
+  return src[tickerFillIdx];
 }
 function renderTicker(){
-  const el = document.getElementById('ticker');
-  const combined = tickerQueue.length ? tickerQueue : HEADLINE_POOL.map(h=>({text:h,dir:null}));
-  const spans = combined.map(h=>`<span class="${h.dir||''}">${h.text}</span>`).join('');
-  // Content rendered twice back-to-back so tickerFrame can wrap the scroll
-  // position at the halfway point seamlessly (the two copies are identical,
-  // so the wrap is invisible) instead of restarting a CSS keyframe.
-  el.innerHTML = spans + spans;
+  document.getElementById('ticker').innerHTML = '';
+  tickerItems = [];
+  tickerBeltWidth = 0;
+  tickerPos = 0;
 }
 
+let tickerItems = [];      // [{el, w}] — widths cached at append so frames never force layout
+let tickerBeltWidth = 0;
 let tickerPos = 0;
 let tickerLastTs = null;
 const TICKER_SPEED_PX_S = 55;
+let tickerViewW = 0;
+window.addEventListener('resize', ()=>{ tickerViewW = 0; });
 function tickerFrame(ts){
   if(tickerLastTs === null) tickerLastTs = ts;
-  const dt = (ts - tickerLastTs) / 1000;
+  // Clamp so a long main-thread stall (heavy re-render during a crash, tab
+  // switch) slows the scroll for a frame rather than teleporting it.
+  const dt = Math.min(0.05, (ts - tickerLastTs) / 1000);
   tickerLastTs = ts;
   const el = document.getElementById('ticker');
-  const half = el.scrollWidth / 2; // width of one (of the two) copies of the content
-  if(half > 0){
-    tickerPos = (tickerPos + TICKER_SPEED_PX_S * dt) % half;
-    el.style.transform = `translateX(${-tickerPos}px)`;
+  tickerPos += TICKER_SPEED_PX_S * dt;
+  while(tickerItems.length && tickerItems[0].w <= tickerPos){
+    const gone = tickerItems.shift();
+    gone.el.remove();
+    tickerPos -= gone.w;
+    tickerBeltWidth -= gone.w;
   }
+  if(!tickerViewW) tickerViewW = el.parentNode.clientWidth || 480;
+  let guard = 0;
+  while(tickerBeltWidth - tickerPos < tickerViewW + 40 && guard++ < 20){
+    const h = nextTickerItem();
+    const span = document.createElement('span');
+    if(h.dir) span.className = h.dir;
+    span.innerHTML = h.text;
+    el.appendChild(span);
+    const w = span.offsetWidth + parseFloat(getComputedStyle(span).marginRight || 0);
+    tickerItems.push({el: span, w});
+    tickerBeltWidth += w;
+  }
+  el.style.transform = `translate3d(${-tickerPos}px,0,0)`;
   requestAnimationFrame(tickerFrame);
 }
 requestAnimationFrame(tickerFrame);
